@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ตั้งค่าฐานข้อมูล – ระบบลงวินิจฉัย ICD10</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Krub:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100vh; overflow: hidden; background: #dbeafe; font-family: 'FreesiaUPC', sans-serif; display: flex; flex-direction: column; }
+
+    /* ขนาดตัวอักษร */
+    body *:not(i):not([class*="fa-"]) { font-family: 'FreesiaUPC', sans-serif !important; font-size: 20px !important; }
+    i, [class*="fa-"] { font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands" !important; }
+    input, select, textarea, .form-control, .form-select { font-size: 20px !important; }
+
+    /* navbar */
+    .top-bar {
+      background: linear-gradient(135deg, #1a3a5c, #2563a8);
+      padding: 6px 20px; display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .top-bar-left { display: flex; align-items: center; gap: 10px; }
+    .btn-back {
+      background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3);
+      color: #fff; border-radius: 6px; padding: 4px 12px; cursor: pointer;
+    }
+    .btn-back:hover { background: rgba(255,255,255,.25); }
+    .top-bar-title { color: #fff; font-weight: 700; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .status-dot.connected    { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    .status-dot.disconnected { background: #ef4444; }
+    .status-text { color: rgba(255,255,255,.8); }
+
+    /* content area */
+    .content { flex: 1; overflow-y: auto; display: flex; align-items: center; justify-content: center; padding: 8px 16px; }
+
+    /* card */
+    .settings-card { background: #fff; border-radius: 14px; box-shadow: 0 6px 30px rgba(0,0,0,.12); width: 100%; max-width: 560px; max-height: calc(100vh - 60px); overflow-y: auto; }
+    .card-head { background: linear-gradient(135deg, #1a3a5c, #2563a8); padding: 8px 20px; position: sticky; top: 0; z-index: 1; }
+    .card-head h5 { color: #fff; margin: 0; font-weight: 700; }
+    .card-body { padding: 10px 20px 12px; }
+
+    /* alert */
+    .alert { border-radius: 8px; padding: 7px 12px; margin-bottom: 8px; }
+    .alert-danger  { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .alert-success { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .d-none { display: none !important; }
+
+    /* db type selector */
+    .db-type-row { display: flex; gap: 8px; margin-bottom: 8px; }
+    .db-type-card {
+      flex: 1; text-align: center; border: 2px solid #dee2e6; border-radius: 10px;
+      cursor: pointer; padding: 5px 10px; transition: all .2s;
+    }
+    .db-type-card:hover   { border-color: #2563a8; background: #f0f6ff; }
+    .db-type-card.selected { border-color: #2563a8; background: #e8f0fe; }
+    .db-type-card input { display: none; }
+
+    /* form fields */
+    .field-row { display: flex; gap: 8px; margin-bottom: 6px; }
+    .field-row .field { flex: 1; }
+    .field-row .field-sm { flex: 0 0 110px; }
+    .field { margin-bottom: 6px; }
+    label.lbl { display: block; font-weight: 600; color: #374151; margin-bottom: 2px; }
+    .form-control {
+      width: 100%; border: 1.5px solid #e5e7eb; border-radius: 8px;
+      padding: 4px 10px; outline: none; transition: border-color .2s;
+    }
+    .form-control:focus { border-color: #2563a8; box-shadow: 0 0 0 3px rgba(37,99,168,.12); }
+    .input-group { display: flex; }
+    .input-group .form-control { border-radius: 8px 0 0 8px; border-right: none; }
+    .input-group .btn-eye {
+      border: 1.5px solid #e5e7eb; border-radius: 0 8px 8px 0;
+      background: #f9fafb; padding: 5px 10px; cursor: pointer;
+    }
+
+    /* buttons */
+    .btn-row { display: flex; gap: 8px; margin-top: 8px; }
+    .btn { border-radius: 8px; padding: 5px 14px; cursor: pointer; border: none; font-weight: 600; transition: opacity .2s; }
+    .btn:hover { opacity: .88; }
+    .btn-outline { border: 1.5px solid #6b7280; background: #fff; color: #374151; flex: 1; }
+    .btn-primary { background: linear-gradient(135deg, #1a3a5c, #2563a8); color: #fff; flex: 1; }
+    .btn-success { background: linear-gradient(135deg, #14532d, #16a34a); color: #fff; width: 100%; margin-top: 6px; }
+  </style>
+</head>
+<body>
+
+  <div class="top-bar">
+    <div class="top-bar-left">
+      <button class="btn-back" onclick="window.location.href='/login.html'">
+        <i class="fas fa-arrow-left"></i>
+      </button>
+      <span class="top-bar-title"><i class="fas fa-database me-2"></i>ตั้งค่าฐานข้อมูล</span>
+    </div>
+    <span class="status-text">
+      <span class="status-dot disconnected" id="statusDot"></span>
+      <span id="statusText">ยังไม่ได้เชื่อมต่อ</span>
+    </span>
+  </div>
+
+  <div class="content">
+    <div class="settings-card">
+      <div class="card-head">
+        <h5><i class="fas fa-database me-2"></i>การเชื่อมต่อฐานข้อมูล</h5>
+      </div>
+      <div class="card-body">
+
+        <div id="alertBox" class="alert d-none"></div>
+
+        <!-- DB Type -->
+        <div class="db-type-row">
+          <label class="db-type-card selected" id="card_mysql">
+            <input type="radio" name="dbType" value="mysql" checked>
+            <i class="fas fa-database text-warning"></i>
+            <div class="fw-semibold">MySQL / MariaDB</div>
+            <small style="color:#6b7280">Port 3306</small>
+          </label>
+          <label class="db-type-card" id="card_postgresql">
+            <input type="radio" name="dbType" value="postgresql">
+            <i class="fas fa-database text-info"></i>
+            <div class="fw-semibold">PostgreSQL</div>
+            <small style="color:#6b7280">Port 5432</small>
+          </label>
+        </div>
+
+        <!-- Host / Port -->
+        <div class="field-row">
+          <div class="field">
+            <label class="lbl">Host / IP Address</label>
+            <input type="text" class="form-control" id="host" placeholder="localhost">
+          </div>
+          <div class="field-sm">
+            <label class="lbl">Port</label>
+            <input type="number" class="form-control" id="port" placeholder="3306">
+          </div>
+        </div>
+
+        <!-- Database -->
+        <div class="field">
+          <label class="lbl">ชื่อฐานข้อมูล (Database)</label>
+          <input type="text" class="form-control" id="database" placeholder="เช่น hospital">
+        </div>
+
+        <!-- Username -->
+        <div class="field">
+          <label class="lbl">ชื่อผู้ใช้ (Username)</label>
+          <input type="text" class="form-control" id="username" placeholder="root">
+        </div>
+
+        <!-- Password -->
+        <div class="field">
+          <label class="lbl">รหัสผ่าน (Password)</label>
+          <div class="input-group">
+            <input type="password" class="form-control" id="password" placeholder="รหัสผ่าน">
+            <button class="btn-eye" type="button" onclick="togglePwd()">
+              <i class="fas fa-eye" id="eyeIcon"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Action buttons -->
+        <div class="btn-row">
+          <button class="btn btn-outline" onclick="testConn()" id="btnTest">
+            <i class="fas fa-plug me-1"></i>ทดสอบ
+          </button>
+          <button class="btn btn-primary" onclick="saveConn()" id="btnSave">
+            <i class="fas fa-save me-1"></i>บันทึก & เชื่อมต่อ
+          </button>
+        </div>
+        <button class="btn btn-success" onclick="window.location.href='/login.html'">
+          <i class="fas fa-sign-in-alt me-1"></i>กลับหน้าเข้าสู่ระบบ
+        </button>
+
+        <hr style="margin:12px 0;border-color:#bee3f8;">
+
+        <!-- ปุ่มสร้างตาราง log -->
+        <div style="display:flex;align-items:center;gap:10px;margin-top:4px;">
+          <button id="btnCreateLogTable" class="btn" onclick="createLogTable()"
+            style="border:none;border-radius:8px;padding:7px 18px;font-weight:600;cursor:not-allowed;background:#9ca3af;color:#fff;" disabled>
+            <i class="fas fa-table me-1"></i>เพิ่มตาราง log
+          </button>
+          <span id="logTableStatus" style="font-size:18px!important;color:#64748b;">กำลังตรวจสอบ...</span>
+        </div>
+
+        <!-- ปุ่มสร้างตาราง success -->
+        <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+          <button id="btnCreateSuccessTable" class="btn" onclick="createSuccessTable()"
+            style="border:none;border-radius:8px;padding:7px 18px;font-weight:600;cursor:not-allowed;background:#9ca3af;color:#fff;" disabled>
+            <i class="fas fa-table me-1"></i>เพิ่มตาราง success
+          </button>
+          <span id="successTableStatus" style="font-size:18px!important;color:#64748b;">กำลังตรวจสอบ...</span>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/index.js"></script>
+</body>
+</html>

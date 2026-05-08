@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบงานเวชระเบียน</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100vh; overflow: hidden; font-family: 'FreesiaUPC', sans-serif; }
+    body *:not(i):not([class*="fa-"]) { font-family: 'FreesiaUPC', sans-serif !important; font-size: 30px !important; color: #000 !important; }
+    i, [class*="fa-"] { font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands" !important; }
+
+    body {
+      background: linear-gradient(135deg, #b8d8f0 0%, #cce5ff 50%, #b8d8f0 100%);
+      display: flex; flex-direction: column;
+    }
+
+    /* ─── header ─── */
+    .top-bar {
+      background: rgba(0,0,0,.3);
+      backdrop-filter: blur(8px);
+      padding: 10px 28px;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+    }
+    .top-bar-left { display: flex; flex-direction: column; }
+    .top-title { color: #fff; font-weight: 700; }
+    .top-hospital { color: #93c5fd; }
+    .top-bar-right { display: flex; align-items: center; gap: 12px; }
+    .user-box {
+      background: rgba(255,255,255,.12);
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 10px;
+      padding: 6px 16px;
+      color: #fff;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .btn-logout {
+      background: rgba(255,255,255,.15);
+      border: 1px solid rgba(255,255,255,.3);
+      color: #fff; border-radius: 8px;
+      padding: 6px 16px; cursor: pointer;
+    }
+    .btn-logout:hover { background: rgba(255,255,255,.25); }
+
+    /* ─── main ─── */
+    .main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px; }
+
+    .menu-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(242px, 1fr));
+      gap: 22px;
+      width: 100%;
+      max-width: 990px;
+    }
+
+    .menu-card {
+      background: rgba(255,255,255,.95);
+      border-radius: 20px;
+      padding: 35px 26px;
+      text-align: center;
+      cursor: pointer;
+      transition: transform .15s, box-shadow .15s;
+      box-shadow: 0 8px 32px rgba(0,0,0,.25);
+      text-decoration: none;
+      display: block;
+    }
+    .menu-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 16px 48px rgba(0,0,0,.35);
+    }
+    .menu-card .icon {
+      width: 72px; height: 72px;
+      border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      margin-bottom: 14px;
+      font-size: 30px;
+    }
+    .menu-card .label { font-weight: 700; color: #1e293b; }
+    .menu-card .desc  { color: #64748b; margin-top: 4px; }
+
+    .icon-blue   { background: linear-gradient(135deg, #1a3a5c, #2563a8); color: #fff; }
+    .icon-green  { background: linear-gradient(135deg, #14532d, #16a34a); color: #fff; }
+    .icon-orange { background: linear-gradient(135deg, #7c2d12, #c2410c); color: #fff; }
+    .icon-purple { background: linear-gradient(135deg, #4a1d96, #7c3aed); color: #fff; }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="top-bar">
+    <div class="top-bar-left">
+      <span class="top-title"><i class="fas fa-hospital-alt me-2"></i>ระบบงานเวชระเบียน</span>
+      <span class="top-hospital" id="hospitalName"></span>
+    </div>
+    <div class="top-bar-right">
+      <div class="user-box">
+        <i class="fas fa-user-circle"></i>
+        <span id="userName">...</span>
+      </div>
+      <button class="btn-logout" onclick="logout()">
+        <i class="fas fa-sign-out-alt me-1"></i>ออกจากระบบ
+      </button>
+    </div>
+  </div>
+
+  <!-- Menu -->
+  <div class="main">
+    <div class="menu-grid">
+
+      <a href="/patients.html" class="menu-card">
+        <div class="icon icon-blue">
+          <i class="fas fa-user-injured"></i>
+        </div>
+        <div class="label">ลงรหัส ICD10 ผู้ป่วยนอก</div>
+        <div class="desc">OPD · ลงวินิจฉัยและรหัส ICD10</div>
+      </a>
+
+      <a href="/ipd_patients.html" class="menu-card">
+        <div class="icon icon-green">
+          <i class="fas fa-bed"></i>
+        </div>
+        <div class="label">ลงรหัส ICD10 ผู้ป่วยใน</div>
+        <div class="desc">IPD · ลงวินิจฉัยและรหัส ICD10</div>
+      </a>
+
+      <a href="/chart.html" class="menu-card">
+        <div class="icon icon-purple">
+          <i class="fas fa-folder-open"></i>
+        </div>
+        <div class="label">ระบบจัดการ Chart ผู้ป่วยใน</div>
+        <div class="desc">ยืม คืน สรุป chart ผู้ป่วยใน</div>
+      </a>
+
+    </div>
+  </div>
+
+  <script src="/js/auth.js"></script>
+  <script>
+    (async () => {
+      const user = await requireAuth();
+      if (!user) return;
+
+      // แสดงชื่อผู้ใช้จาก session
+      const u = getUser();
+      document.getElementById('userName').textContent =
+        (u && (u.officer_name || u.officer_login_name)) || '–';
+
+      // โหลดชื่อโรงพยาบาล
+      try {
+        const res  = await apiFetch('/api/hospital');
+        const data = await res.json();
+        if (data.hospitalname)
+          document.getElementById('hospitalName').textContent = data.hospitalname;
+      } catch (_) {}
+    })();
+  </script>
+</body>
+</html>

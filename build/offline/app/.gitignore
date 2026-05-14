@@ -1,0 +1,16 @@
+# Node modules
+node_modules/
+
+# Database config (contains credentials - do not upload)
+config.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment
+.env

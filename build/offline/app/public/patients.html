@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>รายการผู้ป่วย – ระบบลงวินิจฉัย ICD10</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Krub:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    html, body { height: 100vh; overflow: hidden; margin: 0; }
+    body { background: #dbeafe; font-family: 'FreesiaUPC', sans-serif; display: flex; flex-direction: column; }
+    body *:not(i):not([class*="fa-"]) { font-family: 'FreesiaUPC', sans-serif !important; font-size: 30px !important; }
+    i, [class*="fa-"] { font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands" !important; }
+    input, select, textarea, .form-control, .form-select, .input-group-text { font-size: 30px !important; }
+
+    .navbar { background: linear-gradient(135deg, #90c4e8, #b8d8f0) !important; flex-shrink: 0; }
+    .navbar, .navbar * { color: #000 !important; }
+    .btn-outline-light { border-color: #000 !important; color: #000 !important; }
+
+    /* main area เต็มพื้นที่ที่เหลือ */
+    .main-area { flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: 8px; min-height: 0; }
+
+    /* card กินพื้นที่ทั้งหมด */
+    .card { border: none; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+    .filter-toolbar { background: #f0f8ff; border-radius: 12px 12px 0 0; border-bottom: 1px solid #bee3f8; flex-shrink: 0; }
+
+    /* table wrapper กินพื้นที่ที่เหลือทั้งหมด */
+    .table-wrapper { flex: 1; overflow-x: scroll; overflow-y: auto; border-radius: 0 0 12px 12px; min-height: 0; }
+    .table-wrapper::-webkit-scrollbar { height: 14px; width: 8px; }
+    .table-wrapper::-webkit-scrollbar-track { background: #e0f0ff; }
+    .table-wrapper::-webkit-scrollbar-thumb { background: #90c4e8; border-radius: 8px; }
+    .table-wrapper::-webkit-scrollbar-thumb:hover { background: #60a5d4; }
+
+    .table th { background: #90c4e8; color: #000; font-weight: 700; position: sticky; top: 0; z-index: 1; white-space: nowrap; }
+    .table tbody tr { cursor: pointer; transition: background .15s; }
+    .table tbody tr:hover { background: #bee3f8 !important; }
+    .table tbody tr:nth-child(even) { background: #e8f4fd; }
+    .table td { vertical-align: middle; white-space: nowrap; color: #000; }
+    .badge-pdx { background: #cce5ff; color: #000; border: 1px solid #90c4e8; font-weight: 600; }
+    .search-bar { border-radius: 20px; padding-left: 16px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .status-dot.connected { background: #22c55e; }
+    .loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,.6); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    .spinner-border { width: 3rem; height: 3rem; }
+    .col-vn { font-family: monospace; color: #000; }
+    .col-time { color: #333; }
+    .col-age { text-align: center; }
+    .no-dx { color: #555; font-style: italic; }
+    /* ปุ่มทั้งหมด pastel blue + ตัวดำ */
+    .btn-primary { background: #90c4e8 !important; border-color: #60a5d4 !important; color: #000 !important; }
+    .btn-primary:hover { background: #70b0e0 !important; }
+    .btn-outline-secondary { border-color: #90c4e8 !important; color: #000 !important; }
+    .btn-outline-secondary:hover { background: #bee3f8 !important; }
+    .btn-outline-light { background: #cce5ff !important; border-color: #90c4e8 !important; color: #000 !important; }
+    .btn-outline-light:hover { background: #90c4e8 !important; }
+    /* text ทั้งหมดสีดำ */
+    body *:not(i):not([class*="fa-"]) { color: #000 !important; }
+  </style>
+</head>
+<body>
+
+  <nav class="navbar px-3 py-2">
+    <div class="d-flex align-items-center gap-2">
+      <button class="btn btn-sm btn-outline-light" onclick="window.location.href='/index.html'">
+        <i class="fas fa-home me-1"></i>หน้าแรก
+      </button>
+      <span class="navbar-brand fw-bold mb-0 fs-5">
+        <i class="fas fa-users me-2"></i>รายการผู้ป่วย
+      </span>
+      <span id="hospitalName" class="text-dark" style="font-size:31px!important;"></span>
+    </div>
+    <div class="d-flex align-items-center gap-2 text-white small" id="navUser"></div>
+  </nav>
+
+  <!-- Loading -->
+  <div class="loading-overlay d-none" id="loadingOverlay">
+    <div class="text-center">
+      <div class="spinner-border text-primary mb-2"></div>
+      <div class="text-muted">กำลังโหลดข้อมูล...</div>
+    </div>
+  </div>
+
+  <div class="main-area">
+    <div class="card">
+
+      <!-- Toolbar -->
+      <div class="filter-toolbar p-2">
+        <!-- แถว 1: วันที่ + ค้นหา + checkbox -->
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+          <label class="fw-semibold mb-0 text-nowrap">วันที่ :</label>
+          <input type="date" class="form-control form-control-sm" id="dateInput" style="width:206px;">
+          <button class="btn btn-primary btn-sm" onclick="loadPatients()">
+            <i class="fas fa-search me-1"></i>ค้นหา
+          </button>
+          <div class="input-group input-group-sm" style="width:290px;">
+            <span class="input-group-text"><i class="fas fa-search"></i></span>
+            <input type="text" class="form-control" id="searchInput" placeholder="ชื่อ / VN / ICD10...">
+          </div>
+          <label class="d-flex align-items-center gap-1 mb-0 ms-2" style="cursor:pointer;white-space:nowrap;">
+            <input type="checkbox" id="chkNoIcd" onchange="applyFilters()" style="width:20px;height:20px;cursor:pointer;">
+            <span class="text-danger fw-semibold">ยังไม่ลง ICD10</span>
+          </label>
+          <label class="d-flex align-items-center gap-1 mb-0 ms-2" style="cursor:pointer;white-space:nowrap;">
+            <input type="checkbox" id="chkHasIcd" onchange="applyFilters()" style="width:20px;height:20px;cursor:pointer;">
+            <span class="text-success fw-semibold">ลง ICD10 แล้ว</span>
+          </label>
+          <label class="d-flex align-items-center gap-1 mb-0 ms-2" style="cursor:pointer;white-space:nowrap;">
+            <input type="checkbox" id="chkHasDxText" onchange="applyFilters()" style="width:20px;height:20px;cursor:pointer;">
+            <span class="text-primary fw-semibold">มี diag text</span>
+          </label>
+          <span class="ms-auto fw-semibold text-primary" id="rowCount"></span>
+        </div>
+        <!-- แถว 2: searchable filters -->
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <i class="fas fa-filter text-muted"></i>
+          <div class="d-flex align-items-center gap-1">
+            <label class="mb-0 text-nowrap text-muted" style="font-size:20px!important">แผนก:</label>
+            <input type="text" class="form-control form-control-sm" id="filterSpclty"
+              list="listSpclty" placeholder="พิมพ์เพื่อค้นหา..." oninput="applyFilters()" style="min-width:170px;">
+            <datalist id="listSpclty"></datalist>
+          </div>
+          <div class="d-flex align-items-center gap-1">
+            <label class="mb-0 text-nowrap text-muted" style="font-size:20px!important">ห้องตรวจ:</label>
+            <input type="text" class="form-control form-control-sm" id="filterDep"
+              list="listDep" placeholder="พิมพ์เพื่อค้นหา..." oninput="applyFilters()" style="min-width:170px;">
+            <datalist id="listDep"></datalist>
+          </div>
+          <div class="d-flex align-items-center gap-1">
+            <label class="mb-0 text-nowrap text-muted" style="font-size:20px!important">สิทธิ์:</label>
+            <input type="text" class="form-control form-control-sm" id="filterPttype"
+              list="listPttype" placeholder="พิมพ์เพื่อค้นหา..." oninput="applyFilters()" style="min-width:150px;">
+            <datalist id="listPttype"></datalist>
+          </div>
+          <div class="d-flex align-items-center gap-1">
+            <label class="mb-0 text-nowrap text-muted" style="font-size:20px!important">HN:</label>
+            <input type="text" class="form-control form-control-sm" id="filterHN"
+              placeholder="HN..." oninput="applyFilters()" style="width:120px;">
+          </div>
+          <button class="btn btn-sm btn-outline-secondary" onclick="clearFilters()">
+            <i class="fas fa-times me-1"></i>ล้าง
+          </button>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="table-wrapper">
+        <table class="table table-sm mb-0" id="patientTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>VN</th>
+              <th>เวลา</th>
+              <th>HN</th>
+              <th>ชื่อ-สกุล</th>
+              <th>ห้องตรวจ</th>
+              <th>สิทธิ์</th>
+              <th>PDX</th>
+              <th>ชื่อโรค</th>
+              <th>dx_list</th>
+              <th>แพทย์</th>
+              <th>อายุ</th>
+              <th>BP</th>
+              <th>T°C</th>
+              <th>BW</th>
+              <th>BMI</th>
+            </tr>
+          </thead>
+          <tbody id="patientBody">
+            <tr>
+              <td colspan="15" class="text-center text-muted py-5">
+                <i class="fas fa-calendar-alt fa-2x mb-2 d-block"></i>
+                เลือกวันที่แล้วกดค้นหา
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/patients.js"></script>
+</body>
+</html>

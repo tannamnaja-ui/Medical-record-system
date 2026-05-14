@@ -11,7 +11,8 @@ let rentDoctorTimers = {};
   if (!user) return;
   renderNavUser();
 
-  const today    = new Date().toISOString().split('T')[0];
+  const _d = new Date();
+  const today    = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
   const firstDay = today.substring(0, 7) + '-01';
   document.getElementById('dateFrom').value = firstDay;
   document.getElementById('dateTo').value   = today;
@@ -87,6 +88,7 @@ function setMenu(mode) {
   if (lbl) {
     if (mode === 'borrowed')       lbl.textContent = 'เฉพาะที่ยังไม่ได้คืน';
     else if (mode === 'due_return') lbl.textContent = 'เฉพาะที่ยังไม่ได้คืน';
+    else if (mode === 'all')       lbl.textContent = 'แสดงเฉพาะที่ยังไม่สรุป chart';
     else                            lbl.textContent = 'แสดงเฉพาะที่ยังไม่ได้รับแฟ้ม';
   }
   const overdueRow = document.getElementById('chkOverdueRow');
@@ -100,9 +102,13 @@ function setMenu(mode) {
   // เปลี่ยน label checkbox ตามเมนู
   const chkLabel = document.querySelector('#chkNotReceived + span');
   if (chkLabel) {
-    chkLabel.textContent = mode === 'not_received'
-      ? 'แสดงเฉพาะที่ยังไม่ได้รับแฟ้มจาก ward'
-      : 'แสดงเฉพาะจำหน่ายแล้ว';
+    if (mode === 'not_received') {
+      chkLabel.textContent = 'แสดงเฉพาะที่ยังไม่ได้รับแฟ้มจาก ward';
+    } else if (mode === 'all') {
+      chkLabel.textContent = 'แสดงเฉพาะที่ยังไม่สรุป chart';
+    } else {
+      chkLabel.textContent = 'แสดงเฉพาะจำหน่ายแล้ว';
+    }
   }
 
   loadData();
@@ -124,6 +130,11 @@ async function loadData() {
     if (currentMode === 'not_received') {
       const notReceived = document.getElementById('chkNotReceived')?.checked || false;
       params = new URLSearchParams({ dateFrom, dateTo, ward, notReceived });
+      url = `/api/chart/receive?${params}`;
+    } else if (currentMode === 'all') {
+      const notSummarized = document.getElementById('chkNotReceived')?.checked || false;
+      params = new URLSearchParams({ dateFrom, dateTo, ward });
+      if (notSummarized) params.append('notSummarized', 'true');
       url = `/api/chart/receive?${params}`;
     } else if (currentMode === 'borrowed') {
       const notReturn = document.getElementById('chkNotReceived')?.checked || false;

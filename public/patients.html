@@ -32,11 +32,11 @@
     .table-wrapper::-webkit-scrollbar-thumb { background: #90c4e8; border-radius: 8px; }
     .table-wrapper::-webkit-scrollbar-thumb:hover { background: #60a5d4; }
 
-    .table th { background: #90c4e8; color: #000; font-weight: 700; position: sticky; top: 0; z-index: 1; white-space: nowrap; }
+    .table th { background: #90c4e8; color: #000; font-weight: 700; position: sticky; top: 0; z-index: 1; white-space: nowrap; border-right: 1px solid rgba(0,0,0,.15); }
     .table tbody tr { cursor: pointer; transition: background .15s; }
     .table tbody tr:hover { background: #bee3f8 !important; }
     .table tbody tr:nth-child(even) { background: #e8f4fd; }
-    .table td { vertical-align: middle; white-space: nowrap; color: #000; }
+    .table td { vertical-align: middle; white-space: nowrap; color: #000; border-right: 1px solid #d0e8f8; border-bottom: 1px solid #d0e8f8; }
     .badge-pdx { background: #cce5ff; color: #000; border: 1px solid #90c4e8; font-weight: 600; }
     .search-bar { border-radius: 20px; padding-left: 16px; }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
@@ -47,15 +47,45 @@
     .col-time { color: #333; }
     .col-age { text-align: center; }
     .no-dx { color: #555; font-style: italic; }
-    /* ปุ่มทั้งหมด pastel blue + ตัวดำ */
-    .btn-primary { background: #90c4e8 !important; border-color: #60a5d4 !important; color: #000 !important; }
-    .btn-primary:hover { background: #70b0e0 !important; }
+    /* ปุ่มทั้งหมด pastel blue + ตัวดำ + 3D */
+    .btn {
+      box-shadow: 0 4px 0 rgba(0,0,0,.25), 0 2px 4px rgba(0,0,0,.15) !important;
+      transform: translateY(0);
+      transition: transform .08s, box-shadow .08s !important;
+      border-bottom-width: 2px !important;
+    }
+    .btn:active {
+      box-shadow: 0 1px 0 rgba(0,0,0,.2) !important;
+      transform: translateY(3px);
+    }
+    .btn-primary { background: linear-gradient(to bottom, #a8d4f0, #7ab8e0) !important; border-color: #5090c0 !important; color: #000 !important; }
+    .btn-primary:hover { background: linear-gradient(to bottom, #90c4e8, #60a5d4) !important; }
     .btn-outline-secondary { border-color: #90c4e8 !important; color: #000 !important; }
     .btn-outline-secondary:hover { background: #bee3f8 !important; }
-    .btn-outline-light { background: #cce5ff !important; border-color: #90c4e8 !important; color: #000 !important; }
-    .btn-outline-light:hover { background: #90c4e8 !important; }
+    .btn-outline-light { background: linear-gradient(to bottom, #dff0ff, #b8d8f4) !important; border-color: #80b8e0 !important; color: #000 !important; }
+    .btn-outline-light:hover { background: linear-gradient(to bottom, #c8e4f8, #90c4e8) !important; }
     /* text ทั้งหมดสีดำ */
     body *:not(i):not([class*="fa-"]) { color: #000 !important; }
+
+    .btn-red   { background: linear-gradient(to bottom, #f87171, #dc2626) !important; border-color: #b91c1c !important; }
+    .btn-red:hover   { background: linear-gradient(to bottom, #ef4444, #b91c1c) !important; }
+    .btn-green { background: linear-gradient(to bottom, #4ade80, #16a34a) !important; border-color: #15803d !important; }
+    .btn-green:hover { background: linear-gradient(to bottom, #22c55e, #15803d) !important; }
+
+    /* สี สถานะปัจจุบัน — ใช้ specificity สูงกว่า body * rule */
+    .table td .status-admit { color: #dc2626 !important; font-weight: 600; }
+    .table td .status-done  { color: #16a34a !important; font-weight: 600; }
+
+    /* วงกลม DiagText */
+    .table td .dot-green { color: #22c55e !important; }
+    .table td .dot-red   { color: #dc3545 !important; }
+
+    /* dashboard cards */
+    .dash-row { display: flex; gap: 8px; flex-shrink: 0; padding: 8px 8px 0; }
+    .dash-card { flex: 1; border-radius: 12px; padding: 10px 14px; box-shadow: 0 2px 8px rgba(0,0,0,.1); border: 2px solid rgba(0,0,0,.18); display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .dash-card .dash-icon { font-size: 24px !important; opacity: .75; }
+    .dash-card .dash-lbl  { font-size: 29px !important; color: #333 !important; text-align: center; }
+    .dash-card .dash-num  { font-size: 36px !important; font-weight: 700; line-height: 1; }
   </style>
 </head>
 <body>
@@ -81,6 +111,30 @@
     </div>
   </div>
 
+  <!-- Dashboard -->
+  <div class="dash-row" id="dashboardRow">
+    <div class="dash-card" style="background:#bfdbfe;">
+      <i class="fas fa-users dash-icon"></i>
+      <div class="dash-lbl">ผู้รับบริการทั้งหมด (ราย)</div>
+      <div class="dash-num" id="d-total">–</div>
+    </div>
+    <div class="dash-card" style="background:#a5f3fc;">
+      <i class="fas fa-file-medical dash-icon"></i>
+      <div class="dash-lbl">มี DiagText (ราย)</div>
+      <div class="dash-num" id="d-diagtext">–</div>
+    </div>
+    <div class="dash-card" style="background:#bbf7d0;">
+      <i class="fas fa-check-circle dash-icon"></i>
+      <div class="dash-lbl">บันทึก ICD10 แล้ว (ราย)</div>
+      <div class="dash-num" id="d-has-icd">–</div>
+    </div>
+    <div class="dash-card" style="background:#fecaca;">
+      <i class="fas fa-exclamation-circle dash-icon"></i>
+      <div class="dash-lbl">ยังไม่บันทึก ICD10 (ราย)</div>
+      <div class="dash-num" id="d-no-icd">–</div>
+    </div>
+  </div>
+
   <div class="main-area">
     <div class="card">
 
@@ -89,7 +143,9 @@
         <!-- แถว 1: วันที่ + ค้นหา + checkbox -->
         <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
           <label class="fw-semibold mb-0 text-nowrap">วันที่ :</label>
-          <input type="date" class="form-control form-control-sm" id="dateInput" style="width:206px;">
+          <input type="date" class="form-control form-control-sm" id="dateFrom" style="width:180px;">
+          <span class="fw-semibold mb-0 text-nowrap">ถึง</span>
+          <input type="date" class="form-control form-control-sm" id="dateTo" style="width:180px;">
           <button class="btn btn-primary btn-sm" onclick="loadPatients()">
             <i class="fas fa-search me-1"></i>ค้นหา
           </button>
@@ -127,18 +183,15 @@
             <datalist id="listDep"></datalist>
           </div>
           <div class="d-flex align-items-center gap-1">
-            <label class="mb-0 text-nowrap text-muted" style="font-size:20px!important">สิทธิ์:</label>
-            <input type="text" class="form-control form-control-sm" id="filterPttype"
-              list="listPttype" placeholder="พิมพ์เพื่อค้นหา..." oninput="applyFilters()" style="min-width:150px;">
-            <datalist id="listPttype"></datalist>
-          </div>
-          <div class="d-flex align-items-center gap-1">
             <label class="mb-0 text-nowrap text-muted" style="font-size:20px!important">HN:</label>
             <input type="text" class="form-control form-control-sm" id="filterHN"
               placeholder="HN..." oninput="applyFilters()" style="width:120px;">
           </div>
-          <button class="btn btn-sm btn-outline-secondary" onclick="clearFilters()">
+          <button class="btn btn-sm btn-red" onclick="clearFilters()">
             <i class="fas fa-times me-1"></i>ล้าง
+          </button>
+          <button class="btn btn-sm btn-green" onclick="exportExcel()">
+            <i class="fas fa-file-excel me-1"></i>ส่งออก Excel
           </button>
         </div>
       </div>
@@ -149,26 +202,24 @@
           <thead>
             <tr>
               <th>#</th>
-              <th>VN</th>
-              <th>เวลา</th>
+              <th>วันที่มา</th>
+              <th id="th-vsttime" style="cursor:pointer;user-select:none;" onclick="toggleSortTime()">เวลามา <i id="sort-icon-time" class="fas fa-sort"></i></th>
+              <th>การมา</th>
+              <th>สถานะปัจจุบัน</th>
               <th>HN</th>
-              <th>ชื่อ-สกุล</th>
+              <th>ชื่อ - สกุล</th>
+              <th>อายุ</th>
+              <th>PDX</th>
+              <th>แพทย์ผู้ตรวจ</th>
+              <th>DiagText</th>
+              <th>แผนก</th>
               <th>ห้องตรวจ</th>
               <th>สิทธิ์</th>
-              <th>PDX</th>
-              <th>ชื่อโรค</th>
-              <th>dx_list</th>
-              <th>แพทย์</th>
-              <th>อายุ</th>
-              <th>BP</th>
-              <th>T°C</th>
-              <th>BW</th>
-              <th>BMI</th>
             </tr>
           </thead>
           <tbody id="patientBody">
             <tr>
-              <td colspan="15" class="text-center text-muted py-5">
+              <td colspan="14" class="text-center text-muted py-5">
                 <i class="fas fa-calendar-alt fa-2x mb-2 d-block"></i>
                 เลือกวันที่แล้วกดค้นหา
               </td>
@@ -181,6 +232,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/patients.js"></script>
 </body>

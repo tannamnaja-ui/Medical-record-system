@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ลงรหัส ICD10 ผู้ป่วยใน</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <style>
+    html, body { height: 100vh; overflow: hidden; margin: 0; }
+    body { background: #dbeafe; font-family: 'FreesiaUPC', sans-serif; display: flex; flex-direction: column; }
+    body *:not(i):not([class*="fa-"]) { font-family: 'FreesiaUPC', sans-serif !important; font-size: 30px !important; color: #000 !important; }
+    i, [class*="fa-"] { font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands" !important; }
+
+    .navbar { background: linear-gradient(135deg, #90c4e8, #b8d8f0) !important; flex-shrink: 0; }
+    .navbar, .navbar * { color: #000 !important; }
+    .btn-outline-light { background: #cce5ff !important; border-color: #90c4e8 !important; color: #000 !important; }
+
+    .main-area { flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: 8px; min-height: 0; }
+    .card { border: none; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+    .filter-toolbar { background: #f0f8ff; border-radius: 12px 12px 0 0; border-bottom: 1px solid #bee3f8; flex-shrink: 0; }
+
+    .table-wrapper { flex: 1; overflow-x: scroll !important; overflow-y: auto; border-radius: 0 0 12px 12px; min-height: 0; }
+    .table-wrapper::-webkit-scrollbar { height: 14px; width: 8px; }
+    .table-wrapper::-webkit-scrollbar-track { background: #e0f0ff; }
+    .table-wrapper::-webkit-scrollbar-thumb { background: #90c4e8; border-radius: 8px; }
+    .table-wrapper::-webkit-scrollbar-thumb:hover { background: #60a5d4; }
+
+    .table th { background: #90c4e8; color: #000; font-weight: 700; position: sticky; top: 0; z-index: 1; white-space: nowrap; }
+    .table tbody tr { cursor: pointer; transition: background .15s; }
+    .table tbody tr:hover { background: #bee3f8 !important; }
+    .table tbody tr:nth-child(even) { background: #e8f4fd; }
+    .table td { vertical-align: middle; white-space: nowrap; color: #000; }
+
+    .badge-icd { background: #cce5ff; color: #000; border: 1px solid #90c4e8; font-weight: 600; padding: 2px 6px; border-radius: 4px; }
+    .no-dx { color: #888; font-style: italic; }
+
+    .btn-primary { background: #90c4e8 !important; border-color: #60a5d4 !important; color: #000 !important; }
+    .btn-primary:hover { background: #70b0e0 !important; }
+    .btn-outline-secondary { border-color: #90c4e8 !important; color: #000 !important; }
+    .btn-outline-secondary:hover { background: #bee3f8 !important; }
+
+    .loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,.6); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+  </style>
+</head>
+<body>
+
+  <nav class="navbar px-3 py-2">
+    <div class="d-flex align-items-center gap-2">
+      <button class="btn btn-sm btn-outline-light" onclick="window.location.href='/index.html'">
+        <i class="fas fa-home me-1"></i>หน้าแรก
+      </button>
+      <span class="fw-bold" style="font-size:24px!important;"><i class="fas fa-bed me-2"></i>ลงรหัส ICD10 ผู้ป่วยใน</span>
+      <span id="hospitalName" style="font-size:24px!important;"></span>
+    </div>
+    <div id="navUser" class="d-flex align-items-center gap-2"></div>
+  </nav>
+
+  <div class="loading-overlay d-none" id="loadingOverlay">
+    <div class="text-center">
+      <div class="spinner-border text-primary mb-2" style="width:3rem;height:3rem;"></div>
+      <div>กำลังโหลดข้อมูล...</div>
+    </div>
+  </div>
+
+  <div class="main-area">
+    <div class="card">
+
+      <!-- Toolbar — 2 แถว -->
+      <div class="filter-toolbar p-2">
+        <!-- แถว 1: วันที่ + ตึก (ไม่มีปุ่มค้นหา) -->
+        <div class="d-flex gap-2 align-items-center mb-2" style="flex-wrap:nowrap;overflow-x:auto;">
+          <label class="fw-semibold mb-0 text-nowrap">วันจำหน่าย :</label>
+          <input type="date" class="form-control form-control-sm" id="dateFrom" style="width:170px;flex-shrink:0;">
+          <span class="mb-0 text-nowrap">ถึง</span>
+          <input type="date" class="form-control form-control-sm" id="dateTo" style="width:170px;flex-shrink:0;">
+          <label class="fw-semibold mb-0 text-nowrap ms-1">ตึก :</label>
+          <select class="form-select form-select-sm" id="wardSelect" style="width:480px;flex-shrink:0;" onchange="updateWardLabel()">
+            <option value="ALL">-- ทุกตึก --</option>
+          </select>
+        </div>
+
+        <!-- แถว 2: ค้นหา + checkboxes + search -->
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <button class="btn btn-primary btn-sm" onclick="loadPatients()">
+            <i class="fas fa-search me-1"></i>ค้นหา
+          </button>
+          <label class="d-flex align-items-center gap-2 mb-0" style="cursor:pointer;white-space:nowrap;margin-right:16px;">
+            <input type="checkbox" id="chkConfirmedDch" onchange="loadPatients()" style="width:18px;height:18px;cursor:pointer;">
+            <span class="fw-semibold" style="color:#1d4ed8;">จำหน่ายแล้ว</span>
+          </label>
+          <label class="d-flex align-items-center gap-2 mb-0" style="cursor:pointer;white-space:nowrap;margin-right:16px;">
+            <input type="checkbox" id="chkNoIcd" onchange="applyFilters()" style="width:18px;height:18px;cursor:pointer;">
+            <span class="text-danger fw-semibold">ยังไม่ลง ICD10</span>
+          </label>
+          <label class="d-flex align-items-center gap-2 mb-0" style="cursor:pointer;white-space:nowrap;margin-right:16px;">
+            <input type="checkbox" id="chkHasIcd" onchange="applyFilters()" style="width:18px;height:18px;cursor:pointer;">
+            <span class="text-success fw-semibold">ลง ICD10 แล้ว</span>
+          </label>
+          <label class="d-flex align-items-center gap-2 mb-0" style="cursor:pointer;white-space:nowrap;margin-right:16px;">
+            <input type="checkbox" id="chkHasDxText" onchange="applyFilters()" style="width:18px;height:18px;cursor:pointer;">
+            <span class="text-primary fw-semibold">มี diag text</span>
+          </label>
+          <div class="input-group input-group-sm" style="width:220px;">
+            <span class="input-group-text"><i class="fas fa-search"></i></span>
+            <input type="text" class="form-control" id="searchInput" placeholder="ชื่อ / AN / HN / ICD10...">
+          </div>
+          <button class="btn btn-sm btn-outline-secondary" onclick="clearFilters()">
+            <i class="fas fa-times me-1"></i>ล้าง
+          </button>
+
+        </div>
+        <!-- แสดงตึกที่เลือก + จำนวน -->
+        <div class="d-flex justify-content-between mt-1">
+          <div id="wardLabel" style="font-size:18px!important;color:#555;"></div>
+          <span class="fw-semibold" id="rowCount" style="font-size:18px!important;"></span>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="table-wrapper">
+        <table class="table table-sm mb-0" id="ipdTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>AN</th>
+              <th>HN</th>
+              <th>ชื่อ-สกุล</th>
+              <th>วันรับ</th>
+              <th>วันจำหน่าย</th>
+              <th>ตึก/วอร์ด</th>
+              <th>สิทธิ์</th>
+              <th>ICD10</th>
+              <th>ชื่อโรค</th>
+              <th>diag text</th>
+              <th>ประเภทจำหน่าย</th>
+              <th>แพทย์เจ้าของไข้</th>
+            </tr>
+          </thead>
+          <tbody id="ipdBody">
+            <tr>
+              <td colspan="13" class="text-center text-muted py-5">
+                <i class="fas fa-calendar-alt fa-2x mb-2 d-block"></i>
+                เลือกวันที่แล้วกดค้นหา
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ipd_patients.js"></script>
+</body>
+</html>

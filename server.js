@@ -3,6 +3,14 @@ const crypto  = require('crypto');
 const fs      = require('fs');
 const path    = require('path');
 
+// pg: คืนค่า DATE/TIMESTAMP เป็น string ดิบ ไม่แปลงเป็น Date object (ป้องกัน timezone shift)
+try {
+  const pgTypes = require('pg').types;
+  pgTypes.setTypeParser(1082, val => val); // DATE
+  pgTypes.setTypeParser(1114, val => val); // TIMESTAMP
+  pgTypes.setTypeParser(1184, val => val); // TIMESTAMPTZ
+} catch (_) {}
+
 const app = express();
 app.use(express.json());
 
@@ -70,6 +78,7 @@ async function createConnection(config) {
       waitForConnections: true,
       connectionLimit: 10,
       connectTimeout: 8000,
+      dateStrings: true,
     });
     await pool.query('SELECT 1');
     return { pool, type: 'mysql' };
@@ -83,6 +92,7 @@ async function dbQuery(sql, params = []) {
   let adaptedSQL = sql;
   if (dbConn.type === 'mysql') {
     adaptedSQL = adaptedSQL.replace(/AS VARCHAR\((\d+)\)/gi, 'AS CHAR($1)');
+    adaptedSQL = adaptedSQL.replace(/string_agg\(([^,]+),\s*'([^']*)'\)/gi, "GROUP_CONCAT($1 SEPARATOR '$2')");
   }
   if (dbConn.type === 'postgresql') {
     let i = 0;
@@ -586,34 +596,47 @@ app.post('/api/chart/save-rent', requireAuth, async (req, res) => {
     const staff = lender_code || req.user.officer_login_name || '';
 
     // INSERT ลง ipdrent
-    try {
+    async function allocateRentId() {
+      const rows = await dbQuery(`SELECT COALESCE(MAX(rent_id), 0) + 1 AS next_id FROM ipdrent`);
+      return rows.length ? rows[0].next_id : 1;
+    }
+
+    let rentId = await allocateRentId();
+    if (!rentId) throw new Error('ไม่สามารถสร้าง rent_id ได้');
+
+    const insertRent = async () => {
       await dbQuery(`
         INSERT INTO ipdrent
           (rent_id, an, hn, rent_date, rent_time, rent_depcode,
            rent_user, rent_reason_id, phone, comment, staff,
            due_date, hos_guid, checkin)
-        VALUES (get_serialnumber('rent_id'), ?, ?, ?, ?, ?,
+        VALUES (?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
                 ?, 'app', 'N')`,
-        [an, hn, rent_date, rent_time, rent_depcode,
+        [rentId, an, hn, rent_date, rent_time, rent_depcode,
          rent_user, rent_reason_id, phone || '', comment || '', staff,
          due_date]);
-    } catch (e1) {
-      console.log('[save-rent] e1:', e1.message);
-      // fallback ไม่มี get_serialnumber
+    };
+
+    const duplicateError = err => {
+      const msg = String(err.message || '').toLowerCase();
+      return msg.includes('duplicate key value') || msg.includes('duplicate entry') || msg.includes('unique constraint') || msg.includes('duplicate');
+    };
+
+    let attempt = 0;
+    while (true) {
       try {
-        await dbQuery(`
-          INSERT INTO ipdrent
-            (an, hn, rent_date, rent_time, rent_depcode,
-             rent_user, rent_reason_id, phone, comment, staff,
-             due_date, hos_guid, checkin)
-          VALUES (?, ?, ?, ?, ?,
-                  ?, ?, ?, ?, ?,
-                  ?, 'app', 'N')`,
-          [an, hn, rent_date, rent_time, rent_depcode,
-           rent_user, rent_reason_id, phone || '', comment || '', staff,
-           due_date]);
-      } catch (e2) { console.log('[save-rent] e2:', e2.message); throw e2; }
+        attempt += 1;
+        await insertRent();
+        break;
+      } catch (err) {
+        if (duplicateError(err) && attempt < 5) {
+          rentId = await allocateRentId();
+          if (!rentId) throw new Error('ไม่สามารถสร้าง rent_id ใหม่ได้');
+          continue;
+        }
+        throw err;
+      }
     }
 
     res.json({ success: true, message: 'บันทึกการยืมแฟ้มสำเร็จ' });
@@ -977,22 +1000,23 @@ app.get('/api/chart/find-an', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/chart/receive', requireAuth, async (req, res) => {
-  try {
-    const { dateFrom, dateTo, ward, onlyReceived, notReceived } = req.query;
-    const from  = dateFrom || new Date(Date.now() - 30*24*60*60*1000).toISOString().split('T')[0];
-    const to    = dateTo   || new Date().toISOString().split('T')[0];
+async function queryChartReceive({ from, to, ward, onlyReceived, notReceived, notSummarized }) {
+  const wardFilter         = ward && ward !== 'ALL' ? `AND ipt.ward = ?` : '';
+  const onlyReceivedFilter = onlyReceived === 'true'
+    ? `AND ipt.an IN (SELECT an FROM ipt_chart_location WHERE chart_date IS NOT NULL)` : '';
+  // ยังไม่ได้รับแฟ้ม: chart_date IS NULL หรือ ไม่มีใน ipt_chart_location เลย
+  const notReceivedFilter  = notReceived === 'true'
+    ? `AND (icl.chart_date IS NULL OR ipt.an NOT IN (SELECT an FROM ipt_chart_location))` : '';
+  // ยังไม่สรุป: ไม่อยู่ใน ipt_chart_success_app
+  const notSummarizedFilter = notSummarized === 'true'
+    ? `AND ipt.an NOT IN (SELECT an FROM ipt_chart_success_app)` : '';
+  // สรุปแล้ว: อยู่ใน ipt_chart_success_app
+  const summarizedFilter = notSummarized === 'false' && onlyReceived !== 'true' && notReceived !== 'true'
+    ? `AND ipt.an IN (SELECT an FROM ipt_chart_location WHERE chart_date IS NOT NULL)` : '';
+  const params = [from, to];
+  if (ward && ward !== 'ALL') params.push(ward);
 
-    const wardFilter         = ward && ward !== 'ALL' ? `AND ipt.ward = ?` : '';
-    const onlyReceivedFilter = onlyReceived === 'true'
-      ? `AND ipt.an IN (SELECT an FROM ipt_chart_location WHERE chart_date IS NOT NULL)` : '';
-    // ยังไม่ได้รับแฟ้ม: chart_date IS NULL หรือ ไม่มีใน ipt_chart_location เลย
-    const notReceivedFilter  = notReceived === 'true'
-      ? `AND (icl.chart_date IS NULL OR ipt.an NOT IN (SELECT an FROM ipt_chart_location))` : '';
-    let params = [from, to];
-    if (ward && ward !== 'ALL') params.push(ward);
-
-    const sql = `
+  const sql = `
       SELECT ipt.an, ipt.hn,
              TO_CHAR(ipt.regdate, 'YYYY-MM-DD') AS regdate, ipt.regtime,
              TO_CHAR(ipt.dchdate, 'YYYY-MM-DD') AS dchdate,
@@ -1045,11 +1069,21 @@ app.get('/api/chart/receive', requireAuth, async (req, res) => {
         AND ipt.confirm_discharge = 'Y'
         ${onlyReceivedFilter}
         ${notReceivedFilter}
+        ${notSummarizedFilter}
+        ${summarizedFilter}
         ${wardFilter}
       ORDER BY ipt.regdate, ipt.regtime
       LIMIT 2000`;
 
-    const rows = await dbQuery(sql, params);
+  return dbQuery(sql, params);
+}
+
+app.get('/api/chart/receive', requireAuth, async (req, res) => {
+  try {
+    const { dateFrom, dateTo, ward, onlyReceived, notReceived, notSummarized } = req.query;
+    const from  = dateFrom || new Date(Date.now() - 30*24*60*60*1000).toISOString().split('T')[0];
+    const to    = dateTo   || new Date().toISOString().split('T')[0];
+    const rows = await queryChartReceive({ from, to, ward, onlyReceived, notReceived, notSummarized });
     res.json({ success: true, data: rows });
   } catch (e) {
     res.json({ success: false, message: e.message });
@@ -1061,6 +1095,11 @@ app.get('/api/chart/patients', requireAuth, async (req, res) => {
     const { mode, dateFrom, dateTo, ward, days } = req.query;
     const from = dateFrom || new Date(Date.now() - 30*24*60*60*1000).toISOString().split('T')[0];
     const to   = dateTo   || new Date().toISOString().split('T')[0];
+
+    if (mode === 'all') {
+      const rows = await queryChartReceive({ from, to, ward, onlyReceived: 'false', notReceived: 'false' });
+      return res.json({ success: true, data: rows });
+    }
 
     let extraWhere = '';
     const params = [];
@@ -1339,65 +1378,47 @@ app.get('/api/hospital', requireAuth, async (req, res) => {
 
 app.get('/api/patients', requireAuth, async (req, res) => {
   try {
-    const date = req.query.date || new Date().toISOString().split('T')[0];
+    const _dn = new Date();
+    const today    = `${_dn.getFullYear()}-${String(_dn.getMonth()+1).padStart(2,'0')}-${String(_dn.getDate()).padStart(2,'0')}`;
+    const dateFrom = req.query.dateFrom || req.query.date || today;
+    const dateTo   = req.query.dateTo   || req.query.date || dateFrom;
+    console.log('[/api/patients] query received:', req.query, '-> dateFrom:', dateFrom, 'dateTo:', dateTo);
     const sql = `
-      SELECT o.vstdate,
-        p.cid,
-        o.hn,
-        o.vsttime,
-        CAST(CONCAT(p.pname, p.fname, ' ', p.lname) AS VARCHAR(250)) AS ptname,
-        kk3.department AS main_dep,
-        v.pdx,
-        i.name AS pdx_name,
-        s.name AS spclty_name,
-        oq.dx_text_list,
-        t.name AS pttype_name,
-        o.pttypeno,
-        o.vn,
-        sti.name AS ovstist_name,
-        k.department AS department_name,
-        st.name AS ost_name,
-        v.income,
-        k2.department AS register_department_name,
-        oq.doctor_list_text,
-        pw.name AS pt_walk_name,
-        o.oqueue,
-        vt.visit_type_name,
-        v.age_y,
-        v.age_m,
-        v.age_d,
-        i3.an,
-        ou.officer_name AS staff_name,
-        CAST(oc.cc AS VARCHAR(250)) AS cc,
-        oc.bps,
-        oc.bpd,
-        oc.temperature,
-        oc.bw,
-        oc.bmi,
-        vpt.auth_code
+      SELECT o.vstdate
+        ,o.vsttime
+        ,o.vn
+        ,oi.name as ovstist
+        ,oo.name as ovstost
+        ,o.hn
+        ,concat(p.pname,p.fname,'  ',p.lname) as ptname
+        ,concat(v.age_y,' ','ปี',' ',v.age_m,' ','ด',' ',v.age_d,' ','ว') as age
+        ,v.pdx
+        ,concat(d.code,'-',d.name,'(',d.licenseno,')') as doctor
+        ,oq.dx_text_list
+        ,s.name as spclty
+        ,k.department
+        ,(case when string_agg(oc.cc,',') is null then 'ไม่ได้ลง CC' else string_agg(oc.cc,',') end) as cc
+        ,(case when string_agg(dp.pe,',') is null then 'ไม่ได้ลง PE' else string_agg(dp.pe,',') end) as pe
+        ,pt.name as pttype
       FROM ovst o
-        LEFT OUTER JOIN vn_stat v ON v.vn = o.vn
-        LEFT OUTER JOIN opdscreen oc ON oc.vn = o.vn
-        LEFT OUTER JOIN patient p ON p.hn = o.hn
-        LEFT OUTER JOIN pttype t ON t.pttype = o.pttype
-        LEFT OUTER JOIN icd101 i ON i.code = v.pdx
-        LEFT OUTER JOIN spclty s ON s.spclty = o.spclty
-        LEFT OUTER JOIN ovstist sti ON sti.ovstist = o.ovstist
-        LEFT OUTER JOIN ovstost st ON st.ovstost = o.ovstost
-        LEFT OUTER JOIN ovst_seq oq ON oq.vn = o.vn
-        LEFT OUTER JOIN kskdepartment k ON k.depcode = o.cur_dep
-        LEFT OUTER JOIN kskdepartment k2 ON k2.depcode = oq.register_depcode
-        LEFT OUTER JOIN kskdepartment kk3 ON kk3.depcode = o.main_dep
-        LEFT OUTER JOIN kskdepartment k3 ON k3.depcode = o.cur_dep
-        LEFT OUTER JOIN visit_type vt ON vt.visit_type = o.visit_type
-        LEFT OUTER JOIN ipt i3 ON i3.vn = o.vn
-        LEFT OUTER JOIN officer ou ON ou.officer_login_name = o.staff
-        LEFT OUTER JOIN visit_pttype vpt ON vpt.vn = o.vn AND vpt.pttype = o.pttype
-        LEFT OUTER JOIN pt_walk pw ON pw.walk_id = oc.walk_id
+      left outer join ovstist oi on oi.ovstist=o.ovstist
+      left outer join ovstost oo on oo.ovstost=o.ovstost
+      left outer join patient p on p.hn=o.hn
+      left outer join vn_stat v on v.vn=o.vn
+      left outer join doctor d on d.code=o.doctor
+      left outer join ovst_seq oq on oq.vn=o.vn
+      left outer join spclty s on s.spclty=o.spclty
+      left outer join kskdepartment k on k.depcode=o.main_dep
+      left outer join opdscreen_cc_list oc on oc.vn=o.vn
+      left outer join opdscreen_doctor_pe dp on dp.vn=o.vn
+      left outer join pttype pt on pt.pttype=o.pttype
       WHERE o.vstdate BETWEEN ? AND ?
-      ORDER BY o.vn
+      group by o.vstdate,o.vsttime,o.vn,oi.name,oo.name,o.hn,v.pdx,d.name,oq.dx_text_list
+        ,s.name,k.department,concat(p.pname,p.fname,'  ',p.lname)
+        ,concat(v.age_y,' ','ปี',' ',v.age_m,' ','ด',' ',v.age_d,' ','ว'),d.code,pt.name
+      ORDER BY o.vstdate, o.vsttime
     `;
-    const rows = await dbQuery(sql, [date, date]);
+    const rows = await dbQuery(sql, [dateFrom, dateTo]);
     res.json({ success: true, data: rows });
   } catch (error) {
     res.json({ success: false, message: error.message });
@@ -1407,34 +1428,44 @@ app.get('/api/patients', requireAuth, async (req, res) => {
 app.get('/api/patient/:vn', requireAuth, async (req, res) => {
   try {
     const { vn } = req.params;
-    const date = req.query.date || new Date().toISOString().split('T')[0];
     const sql = `
-      SELECT CAST(o.vstdate AS DATE) AS vstdate,
-        p.cid,
-        p.hn,
+      SELECT o.vstdate,
         o.vsttime,
-        CAST(CONCAT(p.pname, p.fname, ' ', p.lname) AS VARCHAR(250)) AS ptname,
-        kk3.department AS main_dep,
+        o.vn,
+        o.hn,
+        concat(p.pname,p.fname,'  ',p.lname) as ptname,
+        concat(v.age_y,' ','ปี',' ',v.age_m,' ','ด',' ',v.age_d,' ','ว') as age,
         v.pdx,
-        i.name AS pdx_name,
-        s.name AS spclty_name,
+        concat(d.code,'-',d.name,'(',d.licenseno,')') as doctor,
         oq.dx_text_list,
-        t.name AS pttype_name,
-        o.pttypeno
+        oq.doctor_list_text,
+        s.spclty as spclty_code,
+        s.name as spclty_name,
+        k.department as main_dep,
+        t.name as pttype_name,
+        o.pttypeno,
+        (case when string_agg(oc.cc,',') is null then '' else string_agg(oc.cc,',') end) as cc,
+        (case when string_agg(dp.pe,',') is null then '' else string_agg(dp.pe,',') end) as pe,
+        pt.name as pttype
       FROM ovst o
-        LEFT OUTER JOIN vn_stat v ON v.vn = o.vn
-        LEFT OUTER JOIN opdscreen oc ON oc.vn = o.vn
-        LEFT OUTER JOIN patient p ON p.hn = o.hn
-        LEFT OUTER JOIN pttype t ON t.pttype = o.pttype
-        LEFT OUTER JOIN icd101 i ON i.code = v.pdx
-        LEFT OUTER JOIN spclty s ON s.spclty = o.spclty
-        LEFT OUTER JOIN ovstost st ON st.ovstost = o.ovstost
-        LEFT OUTER JOIN ovst_seq oq ON oq.vn = o.vn
-        LEFT OUTER JOIN kskdepartment kk3 ON kk3.depcode = o.main_dep
-      WHERE o.vstdate BETWEEN ? AND ?
-        AND o.vn = ?
+      left outer join patient p on p.hn=o.hn
+      left outer join vn_stat v on v.vn=o.vn
+      left outer join doctor d on d.code=o.doctor
+      left outer join ovst_seq oq on oq.vn=o.vn
+      left outer join spclty s on s.spclty=o.spclty
+      left outer join kskdepartment k on k.depcode=o.main_dep
+      left outer join pttype t on t.pttype=o.pttype
+      left outer join opdscreen_cc_list oc on oc.vn=o.vn
+      left outer join opdscreen_doctor_pe dp on dp.vn=o.vn
+      left outer join pttype pt on pt.pttype=o.pttype
+      WHERE o.vn = ?
+      group by o.vstdate,o.vsttime,o.vn,o.hn,v.pdx,
+        d.code,d.name,d.licenseno,oq.dx_text_list,oq.doctor_list_text,
+        s.spclty,s.name,k.department,t.name,o.pttypeno,pt.name,
+        concat(p.pname,p.fname,'  ',p.lname),
+        concat(v.age_y,' ','ปี',' ',v.age_m,' ','ด',' ',v.age_d,' ','ว')
     `;
-    const rows = await dbQuery(sql, [date, date, vn]);
+    const rows = await dbQuery(sql, [vn]);
     res.json({ success: true, data: rows[0] || null });
   } catch (error) {
     res.json({ success: false, message: error.message });
@@ -1612,6 +1643,44 @@ app.get('/api/diagnosis/:vn', requireAuth, async (req, res) => {
         console.log(`[diagnosis GET] ovst_dx error: ${e2.message}`);
       }
     }
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    res.json({ success: false, message: error.message });
+  }
+});
+
+// ดึงรายการวินิจฉัยจากแพทย์ (doctor_diag)
+app.get('/api/doctor-diagnosis/:vn', requireAuth, async (req, res) => {
+  try {
+    const { vn } = req.params;
+    let rows = [];
+    try {
+      rows = await dbQuery(
+        `SELECT odd.diag_text, d.name AS doctor_name, odd.diag_datetime
+         FROM ovst_doctor_diag odd
+           LEFT OUTER JOIN doctor d ON d.code = odd.doctor_code
+         WHERE odd.vn = ?
+         ORDER BY odd.diag_datetime DESC`,
+        [vn]
+      );
+      console.log(`[doctor-diagnosis GET] vn=${vn} rows=${rows.length}`);
+    } catch (e1) {
+      console.log(`[doctor-diagnosis GET] error: ${e1.message}`);
+    }
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    res.json({ success: false, message: error.message });
+  }
+});
+
+app.get('/api/diagtypes', requireAuth, async (req, res) => {
+  try {
+    const rows = await dbQuery(
+      `SELECT diagtype AS code, concat(diagtype,'-',name) AS name
+       FROM diagtype
+       WHERE (hos_guid = 'Y' OR hos_guid IS NULL)
+       ORDER BY diagtype`
+    );
     res.json({ success: true, data: rows });
   } catch (error) {
     res.json({ success: false, message: error.message });

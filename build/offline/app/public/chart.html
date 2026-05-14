@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ยืม คืน สรุป chart ผู้ป่วยใน</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100vh; overflow: hidden; font-family: 'FreesiaUPC', sans-serif; }
+    body { display: flex; flex-direction: column; background: #dbeafe; }
+    body *:not(i):not([class*="fa-"]) { font-family: 'FreesiaUPC', sans-serif !important; font-size: 30px !important; color: #000 !important; }
+    i, [class*="fa-"] { font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands" !important; }
+    input, select, textarea, .form-control, .form-select, .input-group-text { font-size: 30px !important; }
+
+    /* ─── navbar ─── */
+    .top-bar { background: linear-gradient(135deg, #90c4e8, #b8d8f0); padding: 6px 16px;
+      display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .top-bar-title { font-weight: 700; font-size: 22px !important; }
+    .btn-home { background: #cce5ff; border: 1px solid #90c4e8; border-radius: 6px;
+      padding: 4px 12px; cursor: pointer; }
+
+    /* ─── body layout ─── */
+    .page-body { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+
+    /* ─── sidebar ─── */
+    .sidebar { width: 242px; flex-shrink: 0; background: #cce5ff;
+      border-right: 2px solid #90c4e8; display: flex; flex-direction: column;
+      overflow-y: auto; }
+    .sidebar-header { background: #90c4e8; padding: 10px 14px; font-weight: 700; font-size: 18px !important; }
+    .menu-item { padding: 12px 16px; cursor: pointer; border-bottom: 1px solid #bee3f8;
+      display: flex; align-items: center; gap: 10px; transition: background .15s; font-size: 18px !important; }
+    .menu-item:hover { background: #bee3f8; }
+    .menu-item.active { background: #90c4e8; font-weight: 700; }
+    .menu-item i { width: 20px; text-align: center; }
+
+    /* ─── content ─── */
+    .content-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 8px; min-height: 0; }
+    .content-header { background: white; border-radius: 10px 10px 0 0; border-bottom: 1px solid #bee3f8;
+      padding: 8px 14px; flex-shrink: 0; }
+    .card-main { background: white; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.08);
+      flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+    .filter-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+      padding: 8px 14px; border-bottom: 1px solid #e0f0ff; flex-shrink: 0; }
+    .table-wrapper { flex: 1; overflow-x: scroll; overflow-y: auto; min-height: 0; }
+    .table-wrapper::-webkit-scrollbar { height: 12px; width: 8px; }
+    .table-wrapper::-webkit-scrollbar-track { background: #e0f0ff; }
+    .table-wrapper::-webkit-scrollbar-thumb { background: #90c4e8; border-radius: 6px; }
+    .table th { background: #90c4e8; color: #000; font-weight: 700; position: sticky; top: 0; z-index: 1; white-space: nowrap; border: 1px solid #b0cfe8; text-align: center; vertical-align: middle; }
+    .table tbody tr { cursor: pointer; transition: background .12s; }
+    .table tbody tr:hover { background: #bee3f8 !important; }
+    .table tbody tr:nth-child(even) { background: #e8f4fd; }
+    .table tbody tr.received-row,
+    .table tbody tr.received-row:nth-child(even) {
+      --bs-table-accent-bg: #d1fae5 !important;
+      --bs-table-bg: #d1fae5 !important;
+      background-color: #d1fae5 !important;
+    }
+    .table td { vertical-align: middle; white-space: nowrap; border: 1px solid #d1d5db; }
+    .table { border-collapse: collapse; }
+
+    /* days overdue badge */
+    .badge-overdue { background: #fee2e2; color: #991b1b; border-radius: 6px; padding: 2px 8px; font-weight: 700; }
+    .badge-ok { background: #dcfce7; color: #166534; border-radius: 6px; padding: 2px 8px; }
+
+    .loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,.6);
+      display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    .btn-primary { background: #90c4e8 !important; border-color: #60a5d4 !important; color: #000 !important; }
+    .btn-primary:hover { background: #70b0e0 !important; }
+    #rowCount { font-size: 16px !important; color: #555; }
+  </style>
+</head>
+<body>
+
+  <!-- navbar -->
+  <div class="top-bar">
+    <div class="d-flex align-items-center gap-2">
+      <button class="btn-home" onclick="window.location.href='/index.html'">
+        <i class="fas fa-home"></i>
+      </button>
+      <span class="top-bar-title"><i class="fas fa-folder-open me-2"></i>ยืม คืน สรุป chart ผู้ป่วยใน</span>
+      <span id="hospitalName"></span>
+    </div>
+    <div id="navUser" class="d-flex align-items-center gap-2"></div>
+  </div>
+
+  <div class="loading-overlay d-none" id="loadingOverlay">
+    <div class="text-center">
+      <div class="spinner-border text-primary mb-2" style="width:3rem;height:3rem;"></div>
+      <div>กำลังโหลด...</div>
+    </div>
+  </div>
+
+  <div class="page-body">
+
+    <!-- sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-header"><i class="fas fa-list me-2"></i>เมนู</div>
+
+      <div class="menu-item active" id="menu_not_received" onclick="setMenu('not_received')">
+        <i class="fas fa-inbox"></i>
+        <span>รับแฟ้มจาก ward</span>
+      </div>
+      <div class="menu-item" id="menu_borrowed" onclick="setMenu('borrowed')">
+        <i class="fas fa-exchange-alt"></i>
+        <span>chart ที่ถูกยืม</span>
+      </div>
+      <div class="menu-item" id="menu_due_return" onclick="setMenu('due_return')">
+        <i class="fas fa-undo-alt" style="color:#ea580c;"></i>
+        <span>chart ที่ต้องคืน</span>
+      </div>
+      <div class="menu-item" id="menu_all" onclick="setMenu('all')">
+        <i class="fas fa-file-medical"></i>
+        <span>สรุป chart</span>
+      </div>
+      <div class="menu-item" id="menu_overdue" onclick="setMenu('overdue')">
+        <i class="fas fa-exclamation-triangle" style="color:#dc2626;flex-shrink:0;"></i>
+        <span>ติดตาม chart<br>เกินกำหนดที่ยังไม่ได้รับ</span>
+      </div>
+    </div>
+
+    <!-- content -->
+    <div class="content-area">
+      <div class="card-main">
+
+        <!-- filter row -->
+        <div class="filter-row" id="filterRow" style="display:none;">
+          <label class="fw-semibold mb-0 text-nowrap" id="dateLabel">วันจำหน่าย :</label>
+          <input type="date" class="form-control form-control-sm" id="dateFrom" style="width:170px;">
+          <span>ถึง</span>
+          <input type="date" class="form-control form-control-sm" id="dateTo" style="width:170px;">
+
+          <label class="fw-semibold mb-0 ms-1 text-nowrap">ตึก :</label>
+          <select class="form-select form-select-sm" id="wardSelect" style="width:220px;">
+            <option value="ALL">-- ทุกตึก --</option>
+          </select>
+
+          <!-- overdue days (แสดงเฉพาะเมนู overdue) -->
+          <span id="overdueDaysRow" class="d-none d-flex align-items-center gap-1">
+            <label class="fw-semibold mb-0 text-nowrap ms-1">เกิน</label>
+            <input type="number" class="form-control form-control-sm" id="overdueDays"
+              value="7" min="1" style="width:80px;">
+            <span class="text-nowrap">วัน</span>
+          </span>
+
+          <button class="btn btn-primary btn-sm" onclick="loadData()">
+            <i class="fas fa-search me-1"></i>ค้นหา
+          </button>
+
+          <div class="input-group input-group-sm ms-1" style="width:220px;">
+            <span class="input-group-text"><i class="fas fa-search"></i></span>
+            <input type="text" class="form-control" id="searchInput"
+              placeholder="ชื่อ / AN / HN... (Enter เพื่อค้นหา)"
+              lang="en" inputmode="text">
+          </div>
+
+          <label class="d-flex align-items-center gap-2 mb-0 ms-1" style="cursor:pointer;white-space:nowrap;">
+            <input type="checkbox" id="chkNotReceived" onchange="loadData()" style="width:20px;height:20px;cursor:pointer;">
+            <span id="chkNotReceivedLabel" class="text-danger fw-semibold">แสดงเฉพาะที่ยังไม่ได้รับแฟ้ม</span>
+          </label>
+          <!-- เฉพาะเมนู borrowed -->
+          <label id="chkOverdueRow" class="d-none d-flex align-items-center gap-2 mb-0 ms-1" style="cursor:pointer;white-space:nowrap;">
+            <input type="checkbox" id="chkOverdue" onchange="loadData()" style="width:20px;height:20px;cursor:pointer;">
+            <span class="fw-semibold" style="color:#ea580c;">เกินกำหนดคืน</span>
+          </label>
+
+          <span id="rowCount" class="ms-auto"></span>
+        </div>
+
+        <!-- title bar -->
+        <div id="titleBar" style="background:#e8f4fd;padding:6px 14px;font-weight:700;flex-shrink:0;border-bottom:1px solid #bee3f8;display:none;display:flex;align-items:center;justify-content:space-between;">
+          <span id="contentTitle"><i class="fas fa-inbox me-2"></i>รับแฟ้มจาก ward</span>
+          <button id="btnExcel" onclick="exportExcel()"
+            style="display:none;background:#16a34a;color:#fff;border:none;border-radius:8px;padding:4px 14px;cursor:pointer;font-weight:600;">
+            <i class="fas fa-file-excel me-1"></i>ส่งออก Excel
+          </button>
+        </div>
+
+        <!-- placeholder ก่อนเลือกเมนู -->
+        <div id="placeholderMsg" style="flex:1;display:flex;align-items:center;justify-content:center;color:#94a3b8;">
+          <div class="text-center">
+            <i class="fas fa-hand-pointer fa-3x mb-3 d-block"></i>
+            กรุณาเลือกเมนูด้านซ้าย ก่อน
+          </div>
+        </div>
+
+        <!-- table -->
+        <div class="table-wrapper" id="tableWrapper" style="display:none;">
+          <table class="table table-sm mb-0" id="chartTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>AN</th>
+                <th>HN</th>
+                <th>ชื่อ-สกุล</th>
+                <th>สถานะ chart</th>
+                <th>วันรับ</th>
+                <th>วันจำหน่าย</th>
+                <th>วัน</th>
+                <th>ตึก/วอร์ด</th>
+                <th>สิทธิ์</th>
+                <th>แพทย์</th>
+                <th>รับแฟ้มวันที่</th>
+                <th>ผู้รับแฟ้ม</th>
+                <th>หมายเหตุ</th>
+              </tr>
+            </thead>
+            <tbody id="chartBody">
+              <tr><td colspan="14" class="text-center text-muted py-5">
+                <i class="fas fa-folder-open fa-2x mb-2 d-block"></i>เลือกเมนูและกดค้นหา
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal รับ chart -->
+  <div class="modal fade" id="borrowModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content" style="font-family:'FreesiaUPC',sans-serif;">
+        <div class="modal-header" style="background:linear-gradient(135deg,#90c4e8,#b8d8f0);">
+          <h5 class="modal-title fw-bold"><i class="fas fa-folder-open me-2"></i>รับ Chart ผู้ป่วยใน</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="fw-bold text-muted" style="font-size:18px!important;">AN</label>
+              <div id="mAn" class="fw-bold" style="font-size:22px!important;"></div>
+            </div>
+            <div class="col-md-9">
+              <label class="fw-bold text-muted" style="font-size:18px!important;">ชื่อ-นามสกุล</label>
+              <div id="mName" class="fw-bold" style="font-size:22px!important;"></div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">วันที่รับ</label>
+              <input type="date" class="form-control" id="mDateIn">
+            </div>
+            <div class="col-md-8">
+              <label class="form-label fw-semibold">Location (ที่รับ chart)</label>
+              <select class="form-select" id="mLocation">
+                <option value="">-- เลือก Location --</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">ห้องที่รับแฟ้ม</label>
+              <input type="text" class="form-control" id="mRoom" placeholder="ห้องที่รับ...">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">สถานะ chart</label>
+              <select class="form-select" id="mStatus">
+                <option value="">-- เลือกสถานะ --</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">หมายเหตุ</label>
+              <textarea class="form-control" id="mNote" rows="2"
+                placeholder="ลงข้อมูลอื่นๆ..."></textarea>
+            </div>
+          </div>
+          <div id="mIptStatus" class="mt-2" style="font-size:18px!important;color:#2563a8;font-style:italic;"></div>
+
+          <!-- checkbox ยืนยันสรุป chart -->
+          <div class="mt-3" style="background:#f0f9ff;border:1px solid #bee3f8;border-radius:10px;padding:10px 16px;">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;">
+              <input type="checkbox" id="chkSummaryConfirm" style="width:22px;height:22px;flex-shrink:0;cursor:pointer;accent-color:#16a34a;">
+              <span>ข้าพเจ้า <strong id="summaryConfirmerName" style="color:#1d4ed8;">...</strong>
+                ขอยืนยันการสรุป chart ครั้งนี้ถูกต้องแล้ว</span>
+            </label>
+          </div>
+
+          <div id="mAlert" class="alert d-none mt-3"></div>
+        </div>
+        <div class="modal-footer" style="flex-wrap:nowrap;gap:6px;">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+          <button type="button" class="btn fw-bold" id="btnShowLog"
+            style="background:#7c3aed;color:#fff;padding:8px 14px;"
+            onclick="showLog()">
+            <i class="fas fa-history me-1"></i>Log
+          </button>
+          <button type="button" class="btn btn-primary fw-bold" id="btnSaveChart"
+            style="padding:8px 18px;" onclick="saveBorrow(false)">
+            <i class="fas fa-save me-1"></i>บันทึกข้อมูล
+          </button>
+          <button type="button" class="btn fw-bold" id="btnBorrow"
+            style="background:#dc2626;color:#fff;padding:8px 18px;"
+            onclick="saveBorrow(true)">
+            <i class="fas fa-file-import me-1"></i>ทำการยืมแฟ้ม
+          </button>
+          <button type="button" class="btn fw-bold d-none" id="btnReturnChart"
+            style="background:#dc2626;color:#fff;padding:8px 18px;"
+            onclick="returnChart()">
+            <i class="fas fa-undo me-1"></i>คืน chart
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal ยืมแฟ้ม -->
+  <div class="modal fade" id="rentModal" tabindex="-1">
+    <div class="modal-dialog" style="max-width:1040px;">
+      <div class="modal-content" style="font-family:'FreesiaUPC',sans-serif;">
+        <div class="modal-header" style="background:linear-gradient(135deg,#dc2626,#ef4444);">
+          <h5 class="modal-title fw-bold" style="color:#fff;"><i class="fas fa-file-import me-2"></i>ยืมแฟ้มผู้ป่วยใน</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+
+          <!-- ส่วนที่ 1: ข้อมูลคนไข้ -->
+          <div style="background:#f0f8ff;border:1px solid #bee3f8;border-radius:10px;padding:8px 14px;margin-bottom:12px;">
+            <div class="fw-bold mb-1" style="color:#1d4ed8;font-size:20px!important;"><i class="fas fa-user-injured me-1"></i>ข้อมูลผู้ป่วย</div>
+            <div class="row g-1" style="font-size:21px!important;">
+              <div class="col-md-3" style="font-size:21px!important;"><span class="text-muted" style="font-size:14px!important;">AN</span><br><strong id="rAn" style="font-size:21px!important;">–</strong></div>
+              <div class="col-md-5" style="font-size:21px!important;"><span class="text-muted" style="font-size:14px!important;">ชื่อ-นามสกุล</span><br><strong id="rName" style="font-size:21px!important;">–</strong></div>
+              <div class="col-md-2" style="font-size:21px!important;"><span class="text-muted" style="font-size:14px!important;">อายุ</span><br><strong id="rAge" style="font-size:21px!important;">–</strong></div>
+              <div class="col-md-2" style="font-size:21px!important;"><span class="text-muted" style="font-size:14px!important;">วันที่รับ chart</span><br><strong id="rChartDate" style="font-size:21px!important;">–</strong></div>
+              <div class="col-md-5" style="font-size:21px!important;"><span class="text-muted" style="font-size:14px!important;">Ward ที่จำหน่าย</span><br><strong id="rWard" style="font-size:21px!important;">–</strong></div>
+            </div>
+          </div>
+
+          <!-- ส่วนที่ 2: ลงข้อมูลการยืม -->
+          <div class="fw-bold mb-2" style="color:#dc2626;"><i class="fas fa-clipboard-list me-1"></i>ข้อมูลการยืม</div>
+          <div class="row g-2">
+            <div class="col-md-3">
+              <label class="form-label fw-semibold mb-1">วันที่ยืม</label>
+              <input type="date" class="form-control" id="rDateRent">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold mb-1">เวลาที่ยืม</label>
+              <input type="time" class="form-control" id="rTimeRent">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold mb-1">ผู้ยืม</label>
+              <div style="position:relative;">
+                <input type="text" class="form-control" id="rBorrower" placeholder="พิมพ์ชื่อแพทย์..." autocomplete="off" oninput="onRentDoctorSearch('rBorrower','rBorrowerDrop','rBorrowerCode')">
+                <div id="rBorrowerDrop" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:1100;max-height:200px;overflow-y:auto;"></div>
+                <input type="hidden" id="rBorrowerCode">
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold mb-1">เบอร์โทรผู้ยืม</label>
+              <input type="text" class="form-control" id="rPhone" placeholder="เบอร์โทร...">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold mb-1">ห้องที่ยืม</label>
+              <input type="text" class="form-control" id="rRoom" list="rRoomList" placeholder="พิมพ์ห้อง..." oninput="onRentRoomSearch()">
+              <datalist id="rRoomList"></datalist>
+            </div>
+            <input type="hidden" id="rSpclty" value="">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold mb-1">เหตุผลการยืม</label>
+              <select class="form-select" id="rReason">
+                <option value="">-- เลือกเหตุผล --</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold mb-1">วันครบกำหนดคืน</label>
+              <input type="date" class="form-control" id="rDueDate">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold mb-1">ผู้ให้ยืม (ค้นแฟ้ม)</label>
+              <div style="position:relative;">
+                <input type="text" class="form-control" id="rLender" placeholder="ผู้ให้ยืม..." autocomplete="off" oninput="onRentDoctorSearch('rLender','rLenderDrop','rLenderCode')">
+                <div id="rLenderDrop" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:1100;max-height:200px;overflow-y:auto;"></div>
+                <input type="hidden" id="rLenderCode">
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold mb-1">หมายเหตุ</label>
+              <textarea class="form-control" id="rNote" rows="2" placeholder="หมายเหตุ..."></textarea>
+            </div>
+          </div>
+          <div id="rAlert" class="alert d-none mt-3"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+          <button type="button" class="btn fw-bold" id="btnRentSave"
+            style="background:#dc2626;color:#fff;padding:10px 28px;" onclick="saveRent()">
+            <i class="fas fa-file-import me-2"></i>ยืนยันการยืมแฟ้ม
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal แสดง Log -->
+  <div class="modal fade" id="logModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+      <div class="modal-content" style="font-family:'FreesiaUPC',sans-serif;">
+        <div class="modal-header" style="background:linear-gradient(135deg,#7c3aed,#a855f7);">
+          <h5 class="modal-title fw-bold" style="color:#fff;">
+            <i class="fas fa-history me-2"></i>ประวัติการดำเนินการ
+            <span id="logModalAN" style="font-size:18px!important;opacity:.8;margin-left:8px;"></span>
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-2">
+          <div id="logTableWrap" style="overflow-x:auto;max-height:60vh;overflow-y:auto;">
+            <table class="table table-sm mb-0" id="logTable">
+              <thead>
+                <tr style="background:#7c3aed;color:#fff;position:sticky;top:0;z-index:1;">
+                  <th>#</th>
+                  <th>วันที่-เวลา</th>
+                  <th>วันที่รับ chart</th>
+                  <th>ห้อง</th>
+                  <th>สถานะ</th>
+                  <th>หมายเหตุ</th>
+                  <th>ผู้ดำเนินการ</th>
+                </tr>
+              </thead>
+              <tbody id="logBody">
+                <tr><td colspan="7" class="text-center text-muted py-3">กำลังโหลด...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/chart.js"></script>
+</body>
+</html>

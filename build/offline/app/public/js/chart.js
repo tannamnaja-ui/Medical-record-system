@@ -11,7 +11,8 @@ let rentDoctorTimers = {};
   if (!user) return;
   renderNavUser();
 
-  const today    = new Date().toISOString().split('T')[0];
+  const _d = new Date();
+  const today    = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
   const firstDay = today.substring(0, 7) + '-01';
   document.getElementById('dateFrom').value = firstDay;
   document.getElementById('dateTo').value   = today;

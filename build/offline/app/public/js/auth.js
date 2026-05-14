@@ -21,12 +21,14 @@ async function requireAuth() {
   const token = getToken();
   if (!token) { window.location.href = '/login.html'; return null; }
   try {
-    const res = await fetch('/api/auth/me', { headers: { 'X-Auth-Token': token } });
+    const res = await apiFetch('/api/auth/me', { timeout: 10000 });
     const data = await res.json();
     if (!data.success) { clearSession(); window.location.href = '/login.html'; return null; }
     return data.user;
   } catch (e) {
-    clearSession(); window.location.href = '/login.html'; return null;
+    clearSession();
+    window.location.href = '/login.html';
+    return null;
   }
 }
 
@@ -38,13 +40,28 @@ async function apiFetch(url, options = {}) {
     options.body = JSON.stringify(options.body);
     options.headers['Content-Type'] = 'application/json';
   }
-  const res = await fetch(url, options);
-  if (res.status === 401) {
-    clearSession();
-    window.location.href = '/login.html';
-    throw new Error('กรุณาเข้าสู่ระบบ');
+
+  const controller = new AbortController();
+  const timeoutMs = options.timeout || 15000;
+  options.signal = controller.signal;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, options);
+    if (res.status === 401) {
+      clearSession();
+      window.location.href = '/login.html';
+      throw new Error('กรุณาเข้าสู่ระบบ');
+    }
+    return res;
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      throw new Error('Request timed out');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return res;
 }
 
 // Logout

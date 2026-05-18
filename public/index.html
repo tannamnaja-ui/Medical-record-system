@@ -9,7 +9,7 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100vh; overflow: hidden; font-family: 'FreesiaUPC', sans-serif; }
-    body *:not(i):not([class*="fa-"]) { font-family: 'FreesiaUPC', sans-serif !important; font-size: 30px !important; color: #000 !important; }
+    body *:not(i):not([class*="fa-"]) { font-family: 'FreesiaUPC', sans-serif !important; font-size: var(--app-fs, 30px) !important; color: #000 !important; }
     i, [class*="fa-"] { font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands" !important; }
 
     body {
@@ -139,6 +139,7 @@
   </div>
 
   <script src="/js/auth.js"></script>
+  <script src="/js/fontsize.js"></script>
   <script>
     (async () => {
       const user = await requireAuth();

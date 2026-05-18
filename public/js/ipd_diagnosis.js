@@ -80,48 +80,44 @@ async function loadPatient() {
   }
 }
 
+
 function renderPatientInfo() {
-  const p = patientData;
+  const p       = patientData;
   const regdate = String(p.regdate||'').substring(0,10);
+  const regtime = String(p.regtime||'').substring(0,8);
   const dchdate = String(p.dchdate||'').substring(0,10);
+  const dchtime = String(p.dchtime||'').substring(0,8);
+  const los     = (p.admdate != null && p.admdate !== '') ? p.admdate : '–';
+  const doctor  = escHtml(p.incharge_doctor_name || p.admdoctor_name || '–');
+
+  function field(label, value, bold) {
+    return `<span class="pi-field${bold?' pi-bold':''}"><span class="pi-lbl">${label}:</span> <span class="pi-val">${value}</span></span>`;
+  }
+
   document.getElementById('patientInfo').innerHTML = `
-    <div class="row g-1">
-      <div class="col-6 col-md-3">
-        <div class="info-label">ชื่อ-สกุล</div>
-        <div class="info-value large">${escHtml(p.patient_name)}</div>
-      </div>
-      <div class="col-6 col-md-1">
-        <div class="info-label">HN</div>
-        <div class="info-value">${escHtml(p.hn)}</div>
-      </div>
-      <div class="col-6 col-md-2">
-        <div class="info-label">AN</div>
-        <div class="info-value">${escHtml(p.an)}</div>
-      </div>
-      <div class="col-6 col-md-2">
-        <div class="info-label">วันรับ</div>
-        <div class="info-value">${escHtml(regdate)} ${escHtml(String(p.regtime||'').substring(0,5))}</div>
-      </div>
-      <div class="col-6 col-md-2">
-        <div class="info-label">วันจำหน่าย</div>
-        <div class="info-value">${escHtml(dchdate) || '–'}</div>
-      </div>
-      <div class="col-6 col-md-2">
-        <div class="info-label">ตึก/วอร์ด</div>
-        <div class="info-value">${escHtml(p.spclty_ward_name || p.ward_name || '–')}</div>
-      </div>
-      <div class="col-6 col-md-2">
-        <div class="info-label">สิทธิ์</div>
-        <div class="info-value">${escHtml(p.pttype_name || '–')}</div>
-      </div>
-      <div class="col-6 col-md-2">
-        <div class="info-label">อายุ</div>
-        <div class="info-value">${p.age_y||''}ปี ${p.age_m||''}ด</div>
-      </div>
-      <div class="col-6 col-md-3">
-        <div class="info-label">แพทย์เจ้าของไข้</div>
-        <div class="info-value">${escHtml(p.incharge_doctor_name || p.admdoctor_name || '–')}</div>
-      </div>
+    <style>
+      .pi-row { display:flex; flex-wrap:wrap; gap:6px 24px; align-items:baseline; margin-bottom:4px; }
+      .pi-field { display:inline-flex; gap:4px; align-items:baseline; white-space:nowrap; }
+      .pi-lbl { color:#555; font-weight:600; }
+      .pi-val { color:#000; }
+      .pi-bold .pi-val { font-weight:700; }
+    </style>
+    <div class="pi-row">
+      ${field('ชื่อ-สกุล', escHtml(p.patient_name))}
+      ${field('HN', escHtml(p.hn))}
+      ${field('AN', escHtml(p.an))}
+      ${field('อายุ', (p.age_y||'–') + ' ปี')}
+    </div>
+    <div class="pi-row">
+      ${field('แพทย์เจ้าของไข้', doctor)}
+      ${field('วันรับ', escHtml(regdate) + ' ' + escHtml(regtime))}
+      ${field('วันจำหน่าย', escHtml(dchdate) || '–')}
+      ${field('เวลาจำหน่าย', escHtml(dchtime) || '–')}
+      ${field('จำนวนวันนอน', los, true)}
+    </div>
+    <div class="pi-row">
+      ${field('ตึก/วอร์ด', escHtml(p.spclty_ward_name || p.ward_name || '–'))}
+      ${field('สิทธิ์', escHtml(p.pttype_name || '–'))}
     </div>`;
 }
 

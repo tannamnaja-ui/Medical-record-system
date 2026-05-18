@@ -98,10 +98,10 @@
     .dot-ok  { background: #22c55e; box-shadow: 0 0 5px #22c55e; }
     .dot-err { background: #ef4444; }
 
-    /* === ขนาดตัวอักษรที่แสดง === */
-    body *:not(i):not([class*="fa-"]) { font-family: 'FreesiaUPC', sans-serif !important; font-size: 30px !important; }
+    /* === ขนาดตัวอักษร (ควบคุมด้วย fontsize.js) === */
+    body *:not(i):not([class*="fa-"]) { font-family: 'FreesiaUPC', sans-serif !important; font-size: var(--app-fs, 30px) !important; }
     i, [class*="fa-"] { font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands" !important; }
-    input, select, textarea, .form-control, .form-select { font-size: 30px !important; }
+    input, select, textarea, .form-control, .form-select { font-size: var(--app-fs, 30px) !important; }
   </style>
 </head>
 <body>
@@ -175,5 +175,6 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/login.js"></script>
+  <script src="/js/fontsize.js"></script>
 </body>
 </html>

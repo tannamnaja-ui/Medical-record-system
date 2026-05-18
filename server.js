@@ -95,6 +95,8 @@ async function dbQuery(sql, params = []) {
     adaptedSQL = adaptedSQL.replace(/string_agg\(([^,]+),\s*'([^']*)'\)/gi, "GROUP_CONCAT($1 SEPARATOR '$2')");
   }
   if (dbConn.type === 'postgresql') {
+    // DATEDIFF(d1,d2) → (d1::date - d2::date)
+    adaptedSQL = adaptedSQL.replace(/DATEDIFF\(([^,]+),\s*([^)]+)\)/gi, '($1::date - $2::date)');
     let i = 0;
     adaptedSQL = adaptedSQL.replace(/\?/g, () => `$${++i}`);
     const result = await dbConn.pool.query(adaptedSQL, params);
@@ -1230,7 +1232,7 @@ app.get('/api/ipd/patient/:an', requireAuth, async (req, res) => {
     const { an } = req.params;
     const rows = await dbQuery(`
       SELECT ipt.an, ipt.hn, CAST(ipt.regdate AS DATE) AS regdate, ipt.regtime,
-             CAST(ipt.dchdate AS DATE) AS dchdate,
+             CAST(ipt.dchdate AS DATE) AS dchdate, ipt.dchtime,
              CAST(CONCAT(p.pname, p.fname, ' ', p.lname) AS VARCHAR(250)) AS patient_name,
              CAST(CONCAT(COALESCE(sp.name,''), ' - ', COALESCE(w.name,'')) AS VARCHAR(250)) AS spclty_ward_name,
              w.name AS ward_name, sp.name AS spclty_name,
@@ -1241,6 +1243,7 @@ app.get('/api/ipd/patient/:an', requireAuth, async (req, res) => {
              COALESCE(dct1.licenseno,'') AS incharge_doctor_licenseno,
              aa.diag_text_list,
              aa.age_y, aa.age_m, aa.age_d,
+             aa.admdate,
              id1.confirm_final_summary
       FROM ipt
         LEFT OUTER JOIN patient p      ON p.hn           = ipt.hn
@@ -1254,8 +1257,23 @@ app.get('/api/ipd/patient/:an', requireAuth, async (req, res) => {
         LEFT OUTER JOIN doctor dct1    ON dct1.code       = il1.doctor
         LEFT OUTER JOIN ipt_discharge id1 ON id1.an       = ipt.an
       WHERE ipt.an = ? LIMIT 1`, [an]);
-    res.json({ success: true, data: rows[0] || null });
+
+    const row = rows[0] || null;
+    if (row) {
+      // คำนวณ LOS ใน Node.js — pg คืน date เป็น string, mysql2 คืนเป็น Date object
+      const toDay = v => {
+        if (!v) return null;
+        const s = (v instanceof Date) ? v.toISOString() : String(v);
+        const m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+        return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+      };
+      const adm = toDay(row.admdate);
+      const dch = toDay(row.dchdate);
+      row.los = (adm && dch) ? Math.round((dch - adm) / 86400000) : null;
+    }
+    res.json({ success: true, data: row });
   } catch (e) {
+    console.error('[ipd/patient] ERROR:', e.message);
     res.json({ success: false, message: e.message });
   }
 });

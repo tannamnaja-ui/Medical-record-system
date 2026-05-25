@@ -1,0 +1,298 @@
+﻿<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ลงวินิจฉัย ICD10</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Krub:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    html { font-size: 16px; font-family: 'FreesiaUPC', sans-serif; }
+    body { background: #dbeafe; font-family: 'FreesiaUPC', sans-serif; font-size: 40px; }
+    input, select, textarea, button, .btn, .form-control, .form-select, .input-group-text { font-size: 16px; }
+    .navbar { background: linear-gradient(135deg, #90c4e8, #b8d8f0) !important; }
+    .navbar, .navbar * { color: #000 !important; }
+    .card { border: none; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); margin-bottom: 16px; }
+    .card-header-info   { background: linear-gradient(135deg, #90c4e8, #b8d8f0); border-radius: 12px 12px 0 0; }
+    .card-header-dx     { background: linear-gradient(135deg, #90c4e8, #b8d8f0); border-radius: 12px 12px 0 0; }
+    .card-header-doctor { background: linear-gradient(135deg, #90c4e8, #b8d8f0); border-radius: 12px 12px 0 0; }
+    .card-header-info *, .card-header-dx *, .card-header-doctor * { color: #000 !important; }
+    .info-label { color: #333; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 1px; }
+    .info-value { font-weight: 600; color: #000; }
+    .info-value.large { }
+    /* patient info */
+    #patientInfo, #patientInfo * { font-size: 22px !important; line-height: 1.3 !important; color: #000 !important; }
+    #patientInfo .row { --bs-gutter-y: 0.15rem; }
+    #patientInfo [class*="col-"] { padding-top: 1px; padding-bottom: 1px; }
+    #patientInfo .info-label { margin-bottom: 0; }
+    #patientInfo .info-value { margin-bottom: 0; }
+    .icd-input-wrapper { position: relative; }
+    .icd-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #90c4e8; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); z-index: 1000; max-height: 280px; overflow-y: auto; display: none; }
+    .icd-dropdown-item { padding: 8px 14px; cursor: pointer; border-bottom: 1px solid #dbeafe; transition: background .1s; color: #000; }
+    .icd-dropdown-item:last-child { border-bottom: none; }
+    .icd-dropdown-item:hover { background: #cce5ff; }
+    .icd-code-badge { font-family: monospace; font-weight: 700; background: #cce5ff; color: #000; padding: 1px 6px; border-radius: 4px; }
+    .icd-name-text { color: #333; margin-top: 2px; }
+    .dx-list-item { background: #f0f8ff; border: 1px solid #bee3f8; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+    .dx-list-item:hover { border-color: #90c4e8; background: #dbeafe; }
+    .dx-type-badge { font-weight: 700; padding: 3px 8px; border-radius: 12px; white-space: nowrap; }
+    .dx-type-1 { background: #fef3c7; color: #000; border: 1px solid #fbbf24; }
+    .dx-type-2 { background: #cce5ff; color: #000; border: 1px solid #90c4e8; }
+    .dx-type-3 { background: #dcfce7; color: #000; border: 1px solid #86efac; }
+    .dx-type-4 { background: #f3e8ff; color: #000; border: 1px solid #c084fc; }
+    .dx-type-5 { background: #fee2e2; color: #000; border: 1px solid #fca5a5; }
+    .empty-dx { text-align: center; color: #555; padding: 20px; font-style: italic; }
+    .btn-save-main { background: linear-gradient(135deg, #90c4e8, #60a5d4); border: none; color: #000; padding: 10px; }
+    .btn-save-main:hover { background: linear-gradient(135deg, #70b0e0, #4090c0); }
+    .btn-outline-light { background: #cce5ff !important; border-color: #90c4e8 !important; color: #000 !important; }
+    .btn-success { background: linear-gradient(135deg, #90c4e8, #60a5d4) !important; border: none !important; color: #000 !important; }
+    .btn-outline-danger { border-color: #f87171 !important; color: #b91c1c !important; }
+    .loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,.6); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    /* === บังคับตัวอักษรดำทุกจุด === */
+    body *:not(i):not([class*="fa-"]) { font-family: 'FreesiaUPC', sans-serif !important; font-size: 30px !important; color: #000 !important; }
+    i, [class*="fa-"] { font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands" !important; }
+    input, select, textarea, .form-control, .form-select, .input-group-text { font-size: 30px !important; }
+  </style>
+</head>
+<body>
+
+  <nav class="navbar px-3 py-2">
+    <div class="d-flex align-items-center gap-2">
+      <button class="btn btn-sm btn-outline-light" onclick="history.back()">
+        <i class="fas fa-arrow-left me-1"></i>กลับ
+      </button>
+      <span class="navbar-brand fw-bold mb-0 fs-5">
+        <i class="fas fa-stethoscope me-2"></i>ลงวินิจฉัย ICD10
+      </span>
+      <span id="vnDisplay" class="text-white-50 small font-monospace ms-1"></span>
+    </div>
+    <div class="d-flex align-items-center gap-2 text-white small" id="navUser"></div>
+  </nav>
+
+  <!-- Loading -->
+  <div class="loading-overlay d-none" id="loadingOverlay">
+    <div class="text-center">
+      <div class="spinner-border text-primary mb-2" style="width:3rem;height:3rem;"></div>
+      <div class="text-muted">กำลังโหลด...</div>
+    </div>
+  </div>
+
+  <div class="container mt-3 mb-5">
+    <div id="alertBox" class="alert d-none mb-3" role="alert"></div>
+
+    <!-- Patient Info Card -->
+    <div class="card">
+      <div class="card-header-info p-3">
+        <h6 class="text-white mb-0"><i class="fas fa-user-injured me-2"></i>ข้อมูลผู้ป่วย</h6>
+      </div>
+      <div class="card-body p-3">
+        <div id="patientInfo">
+          <div class="text-center text-muted py-3">
+            <div class="spinner-border spinner-border-sm me-2"></div>กำลังโหลดข้อมูล...
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Doctor List Text Card -->
+    <div id="doctorListTextSection" class="card d-none">
+      <div class="card-header-dx p-3">
+        <h6 class="text-white mb-0"><i class="fas fa-notes-medical me-2"></i>รายการวินิจฉัยจากแพทย์ (doctor_list_text)</h6>
+      </div>
+      <div class="card-body p-3">
+        <div style="background:#f8fafc;border:1px solid #cfe2ff;border-radius:8px;padding:12px 16px;">
+          <div id="doctorListTextDisplay" style="color:#334155;white-space:pre-wrap;line-height:1.6;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Diagnosis Card -->
+    <div class="card">
+      <div class="card-header-dx p-3 d-flex align-items-center justify-content-between">
+        <h6 class="text-white mb-0"><i class="fas fa-notes-medical me-2"></i>รายการวินิจฉัย ICD10</h6>
+        <span id="dxCount" class="badge bg-light text-dark">0 รายการ</span>
+      </div>
+      <div class="card-body p-3">
+
+        <!-- dx_text_list แสดงเหนือช่อง ICD10 -->
+        <div id="dxTextSection" class="mb-3 d-none">
+          <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:8px 14px;">
+            <div style="font-weight:700;color:#0369a1;margin-bottom:2px;">
+              <i class="fas fa-list-alt me-1"></i>รายการวินิจฉัยจากแพทย์ (dx text)
+            </div>
+            <div id="dxTextDisplay" style="color:#334155;white-space:pre-wrap;line-height:1.5;"></div>
+          </div>
+        </div>
+
+        <!-- Add ICD10 Form -->
+        <div class="row g-2 mb-3 align-items-end">
+          <div class="col-md-4">
+            <label class="form-label fw-semibold mb-1">รหัส ICD10 <small class="text-muted">(Enter เพื่อเพิ่ม)</small></label>
+            <div class="icd-input-wrapper">
+              <input type="text" class="form-control" id="icdSearch"
+                placeholder="พิมพ์รหัส เช่น J00 แล้วกด Enter..." autocomplete="off"
+                lang="en" inputmode="text" style="ime-mode:disabled;">
+              <div class="icd-dropdown" id="icdDropdown"></div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold mb-1">ชื่อโรค (แสดงอัตโนมัติ)</label>
+            <input type="text" class="form-control" id="icdNameField" readonly
+              placeholder="จะแสดงเมื่อพบรหัส" style="background:#f8fafc;">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold mb-1">ประเภทการวินิจฉัย</label>
+            <select class="form-select" id="diagType">
+              <option value="1" selected>1 – PDX (หลัก)</option>
+              <option value="2">2 – โรคร่วม</option>
+              <option value="3">3 – ภาวะแทรกซ้อน</option>
+              <option value="4">4 – อื่นๆ</option>
+              <option value="5">5 – สาเหตุภายนอก</option>
+            </select>
+          </div>
+          <div class="col-md-1">
+            <button class="btn btn-success w-100" onclick="addDiagnosis()" id="btnAdd" disabled>
+              <i class="fas fa-plus"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Diagnosis List -->
+        <div id="dxList">
+          <div class="empty-dx">
+            <i class="fas fa-notes-medical fa-2x mb-2 d-block text-muted"></i>
+            ยังไม่มีรายการวินิจฉัย
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ICD9CM Card -->
+    <div class="card">
+      <div class="card-header-dx p-3 d-flex align-items-center justify-content-between">
+        <h6 class="text-white mb-0"><i class="fas fa-procedures me-2"></i>รายการหัตถการ ICD9CM</h6>
+        <span id="icd9Count" class="badge bg-light text-dark">0 รายการ</span>
+      </div>
+      <div class="card-body p-3">
+
+        <!-- Add ICD9CM Form -->
+        <div class="row g-2 mb-2 align-items-end">
+          <div class="col-md-2">
+            <label class="form-label fw-semibold mb-1">รหัส ICD9CM</label>
+            <div style="position:relative;">
+              <input type="text" class="form-control" id="icd9Search"
+                placeholder="พิมพ์รหัส..." autocomplete="off"
+                lang="en" inputmode="text"
+                onfocus="this.lang='en'; this.setAttribute('inputmode','text');">
+              <div id="icd9Dropdown"
+                style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;
+                       border:1px solid #90c4e8;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);
+                       z-index:1000;max-height:260px;overflow-y:auto;"></div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold mb-1">ชื่อหัตถการ</label>
+            <input type="text" class="form-control" id="icd9NameField" readonly
+              placeholder="จะแสดงเมื่อพบรหัส" style="background:#f8fafc;">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label fw-semibold mb-1">oper type</label>
+            <select class="form-select" id="icd9OperType">
+              <option value="">-- เลือก oper type --</option>
+            </select>
+          </div>
+          <div class="col-md-1">
+            <label class="form-label fw-semibold mb-1">ext code</label>
+            <input type="text" class="form-control" id="icd9ExtCode" placeholder="ext code">
+          </div>
+          <div class="col-md-1">
+            <label class="form-label fw-semibold mb-1">รหัสผู้วินิจฉัย</label>
+            <input type="text" class="form-control" id="icd9DoctorRaw" readonly style="background:#f8fafc;">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label fw-semibold mb-1">ผู้วินิจฉัย</label>
+            <div style="position:relative;">
+              <input type="text" class="form-control" id="icd9DoctorName"
+                placeholder="ค้นหาแพทย์..." autocomplete="off" oninput="onIcd9DoctorSearch()">
+              <div id="icd9DoctorDropdown"
+                style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;
+                       border:1px solid #90c4e8;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);
+                       z-index:1001;max-height:220px;overflow-y:auto;"></div>
+            </div>
+          </div>
+          <div class="col-md-1">
+            <button class="btn btn-success w-100" onclick="addIcd9()" id="btnAddIcd9">
+              <i class="fas fa-plus"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- ICD9CM List -->
+        <div id="icd9List">
+          <div class="empty-dx">
+            <i class="fas fa-procedures fa-2x mb-2 d-block text-muted"></i>
+            ยังไม่มีรายการหัตถการ
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Doctor Card -->
+    <div class="card">
+      <div class="card-header-doctor p-3">
+        <h6 class="text-white mb-0"><i class="fas fa-user-md me-2"></i>แพทย์ผู้ตรวจ</h6>
+      </div>
+      <div class="card-body p-3">
+        <div class="row g-2 align-items-center">
+          <div class="col-md-8">
+            <label class="form-label fw-semibold mb-1">ค้นหาแพทย์ (พิมพ์รหัส/ชื่อ/เลขใบอนุญาต)</label>
+            <div style="position:relative;">
+              <input type="text" class="form-control" id="doctorSearch"
+                placeholder="พิมพ์เพื่อค้นหา..." autocomplete="off" oninput="onDoctorSearch()">
+              <div id="doctorDropdown"
+                style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;
+                       border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);
+                       z-index:1000;max-height:260px;overflow-y:auto;"></div>
+            </div>
+            <input type="hidden" id="doctorCode">
+            <div id="doctorSelected" class="mt-1" style="color:#16a34a;font-size:20px!important;min-height:20px;"></div>
+          </div>
+          <div class="col-md-4">
+            <div class="info-label">แพทย์ประจำ OPD (จาก ovst)</div>
+            <div id="defaultDoctorName" class="info-value text-muted">–</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Confirm Checkbox -->
+    <div style="background:#fff;border:2px solid #e2e8f0;border-radius:12px;padding:14px 20px;margin-bottom:12px;">
+      <label style="display:flex;align-items:center;gap:12px;cursor:pointer;user-select:none;">
+        <input type="checkbox" id="chkConfirm" onchange="onConfirmChange()"
+          style="width:24px;height:24px;flex-shrink:0;cursor:pointer;accent-color:#16a34a;">
+        <span>
+          ข้าพเจ้า <strong id="confirmerName" style="color:#1d4ed8;">...</strong>
+          ขอยืนยันการลงข้อมูลวินิจฉัยครั้งนี้ถูกต้องแล้ว
+        </span>
+      </label>
+    </div>
+
+    <!-- Save Button -->
+    <div class="d-grid">
+      <button class="btn btn-success btn-save-main text-white fw-bold" id="btnSaveDiag"
+        onclick="saveDiagnosis()">
+        <i class="fas fa-save me-2"></i>บันทึกการวินิจฉัยทั้งหมด
+      </button>
+    </div>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/diagnosis.js"></script>
+</body>
+</html>
+

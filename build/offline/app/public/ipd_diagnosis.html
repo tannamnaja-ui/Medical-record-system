@@ -16,7 +16,7 @@
     .card-header-info *, .card-header-dx *, .card-header-doctor * { color: #000 !important; }
     .info-label { color: #333; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 1px; }
     .info-value { font-weight: 600; color: #000; }
-    #patientInfo, #patientInfo * { font-size: 22px !important; line-height: 1.3 !important; color: #000 !important; }
+    #patientInfo, #patientInfo * { font-size: calc(var(--app-fs, 30px) * 0.73) !important; line-height: 1.3 !important; color: #000 !important; }
     #patientInfo .row { --bs-gutter-y: 0.15rem; }
     #patientInfo [class*="col-"] { padding-top: 1px; padding-bottom: 1px; }
     #patientInfo .info-label, #patientInfo .info-value { margin-bottom: 0; }
@@ -41,9 +41,9 @@
     .btn-success { background: linear-gradient(135deg, #90c4e8, #60a5d4) !important; border: none !important; color: #000 !important; }
     .btn-outline-danger { border-color: #f87171 !important; color: #b91c1c !important; }
     .loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,.6); display: flex; align-items: center; justify-content: center; z-index: 9999; }
-    body *:not(i):not([class*="fa-"]) { font-family: 'FreesiaUPC', sans-serif !important; font-size: 30px !important; color: #000 !important; }
+    body *:not(i):not([class*="fa-"]) { font-family: 'FreesiaUPC', sans-serif !important; font-size: var(--app-fs, 30px) !important; color: #000 !important; }
     i, [class*="fa-"] { font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands" !important; }
-    input, select, textarea, .form-control, .form-select, .input-group-text { font-size: 30px !important; }
+    input, select, textarea, .form-control, .form-select, .input-group-text { font-size: var(--app-fs, 30px) !important; }
   </style>
 </head>
 <body>
@@ -194,5 +194,6 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/ipd_diagnosis.js"></script>
+  <script src="/js/fontsize.js"></script>
 </body>
 </html>

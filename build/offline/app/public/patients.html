@@ -10,9 +10,9 @@
   <style>
     html, body { height: 100vh; overflow: hidden; margin: 0; }
     body { background: #dbeafe; font-family: 'FreesiaUPC', sans-serif; display: flex; flex-direction: column; }
-    body *:not(i):not([class*="fa-"]) { font-family: 'FreesiaUPC', sans-serif !important; font-size: 30px !important; }
+    body *:not(i):not([class*="fa-"]) { font-family: 'FreesiaUPC', sans-serif !important; font-size: var(--app-fs, 30px) !important; }
     i, [class*="fa-"] { font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands" !important; }
-    input, select, textarea, .form-control, .form-select, .input-group-text { font-size: 30px !important; }
+    input, select, textarea, .form-control, .form-select, .input-group-text { font-size: var(--app-fs, 30px) !important; }
 
     .navbar { background: linear-gradient(135deg, #90c4e8, #b8d8f0) !important; flex-shrink: 0; }
     .navbar, .navbar * { color: #000 !important; }
@@ -83,9 +83,9 @@
     /* dashboard cards */
     .dash-row { display: flex; gap: 8px; flex-shrink: 0; padding: 8px 8px 0; }
     .dash-card { flex: 1; border-radius: 12px; padding: 10px 14px; box-shadow: 0 2px 8px rgba(0,0,0,.1); border: 2px solid rgba(0,0,0,.18); display: flex; flex-direction: column; align-items: center; gap: 4px; }
-    .dash-card .dash-icon { font-size: 24px !important; opacity: .75; }
-    .dash-card .dash-lbl  { font-size: 29px !important; color: #333 !important; text-align: center; }
-    .dash-card .dash-num  { font-size: 36px !important; font-weight: 700; line-height: 1; }
+    .dash-card .dash-icon { font-size: calc(var(--app-fs, 30px) * 0.8) !important; opacity: .75; }
+    .dash-card .dash-lbl  { font-size: var(--app-fs, 30px) !important; color: #333 !important; text-align: center; }
+    .dash-card .dash-num  { font-size: calc(var(--app-fs, 30px) * 1.2) !important; font-weight: 700; line-height: 1; }
   </style>
 </head>
 <body>
@@ -235,5 +235,6 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/patients.js"></script>
+  <script src="/js/fontsize.js"></script>
 </body>
 </html>

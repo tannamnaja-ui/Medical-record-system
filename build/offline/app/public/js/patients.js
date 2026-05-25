@@ -7,10 +7,37 @@ let sortTimeDir  = null; // null | 'asc' | 'desc'
   const user = await requireAuth();
   if (!user) return;
   renderNavUser();
-  const _d = new Date();
-  const today = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
-  dateFrom.value = today;
-  dateTo.value   = today;
+
+  const _saved = sessionStorage.getItem('patients_state');
+  if (_saved) {
+    sessionStorage.removeItem('patients_state');
+    try {
+      const s = JSON.parse(_saved);
+      dateFrom.value = s.dateFrom || '';
+      dateTo.value   = s.dateTo   || '';
+      document.getElementById('searchInput').value   = s.searchInput  || '';
+      document.getElementById('filterSpclty').value  = s.filterSpclty || '';
+      document.getElementById('filterDep').value     = s.filterDep    || '';
+      document.getElementById('filterHN').value      = s.filterHN     || '';
+      document.getElementById('chkNoIcd').checked     = !!s.chkNoIcd;
+      document.getElementById('chkHasIcd').checked    = !!s.chkHasIcd;
+      document.getElementById('chkHasDxText').checked = !!s.chkHasDxText;
+      sortTimeDir = s.sortTimeDir || null;
+      const _icon = document.getElementById('sort-icon-time');
+      if (_icon && sortTimeDir) {
+        _icon.className = sortTimeDir === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
+      }
+      allPatients = s.patients || [];
+      populateFilters(allPatients);
+      updateDashboard(allPatients);
+      applyFilters();
+    } catch (_) {}
+  } else {
+    const _d = new Date();
+    const today = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
+    dateFrom.value = today;
+    dateTo.value   = today;
+  }
 
   try {
     const res  = await apiFetch('/api/hospital');
@@ -216,6 +243,19 @@ function renderTable(rows) {
 function goToDiagnosis(vn, date) {
   const p = allPatients.find(row => String(row.vn) === String(vn));
   if (p) sessionStorage.setItem('selected_patient', JSON.stringify(p));
+  sessionStorage.setItem('patients_state', JSON.stringify({
+    dateFrom:    dateFrom.value,
+    dateTo:      dateTo.value,
+    patients:    allPatients,
+    searchInput: document.getElementById('searchInput').value,
+    filterSpclty: document.getElementById('filterSpclty').value,
+    filterDep:   document.getElementById('filterDep').value,
+    filterHN:    document.getElementById('filterHN').value,
+    chkNoIcd:    document.getElementById('chkNoIcd').checked,
+    chkHasIcd:   document.getElementById('chkHasIcd').checked,
+    chkHasDxText: document.getElementById('chkHasDxText').checked,
+    sortTimeDir:  sortTimeDir,
+  }));
   window.location.href = `/diagnosis.html?vn=${encodeURIComponent(vn)}&date=${encodeURIComponent(date)}`;
 }
 

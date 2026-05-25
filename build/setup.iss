@@ -1,6 +1,6 @@
-; Medical Record System - Inno Setup Script
+; Medical Record System - Inno Setup Script v1.2.0
 #define AppName "Medical Record System"
-#define AppVersion "1.0.0"
+#define AppVersion "1.2.0"
 #define ServiceName "MedicalRecordSystem"
 
 [Setup]
@@ -18,49 +18,98 @@ WizardStyle=modern
 PrivilegesRequired=admin
 SetupIconFile=resources\icon.ico
 UninstallDisplayIcon={app}\icon.ico
+MinVersion=10.0
 
 [Languages]
 Name: "default"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-; App files
-Source: "offline\app\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: ".git,*.log"
-; NSSM
-Source: "offline\tools\nssm.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
-; Node.js installer
-Source: "offline\tools\node-lts-x64.msi"; DestDir: "{tmp}"; Flags: ignoreversion deleteafterinstall
-; Launcher
-Source: "resources\launcher.vbs"; DestDir: "{app}"; Flags: ignoreversion
-; Icon
-Source: "resources\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+; App source files
+Source: "offline\app\server.js";           DestDir: "{app}"; Flags: ignoreversion
+Source: "offline\app\package.json";        DestDir: "{app}"; Flags: ignoreversion
+Source: "offline\app\package-lock.json";   DestDir: "{app}"; Flags: ignoreversion
+Source: "offline\app\config.example.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "offline\app\public\*";            DestDir: "{app}\public"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "offline\app\node_modules\*";      DestDir: "{app}\node_modules"; Flags: ignoreversion recursesubdirs createallsubdirs
+; NSSM (Windows Service manager)
+Source: "offline\tools\nssm.exe";          DestDir: "{app}\tools"; Flags: ignoreversion
+; Node.js installer (extracted to temp, deleted after install)
+Source: "offline\tools\node-lts-x64.msi";  DestDir: "{tmp}"; Flags: ignoreversion deleteafterinstall
+; Launcher & icon
+Source: "resources\launcher.vbs";          DestDir: "{app}"; Flags: ignoreversion
+Source: "resources\icon.ico";              DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{commondesktop}\ระบบงานเวชระเบียน"; Filename: "wscript.exe"; Parameters: """{app}\launcher.vbs"""; IconFilename: "{app}\icon.ico"; WorkingDir: "{app}"; Comment: "เปิดระบบ Medical Record"
-Name: "{group}\เปิดระบบ"; Filename: "wscript.exe"; Parameters: """{app}\launcher.vbs"""; IconFilename: "{app}\icon.ico"; WorkingDir: "{app}"
-Name: "{group}\ถอนการติดตั้ง"; Filename: "{uninstallexe}"
+Name: "{group}\เปิดระบบ";        Filename: "wscript.exe"; Parameters: """{app}\launcher.vbs"""; IconFilename: "{app}\icon.ico"; WorkingDir: "{app}"
+Name: "{group}\ถอนการติดตั้ง";   Filename: "{uninstallexe}"
 
 [Run]
-Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\node-lts-x64.msi"" /qn /norestart"; StatusMsg: "ติดตั้ง Node.js..."; Flags: runhidden waituntilterminated; Check: not IsNodeInstalled
-Filename: "{app}\tools\nssm.exe"; Parameters: "install {#ServiceName} node server.js"; StatusMsg: "ติดตั้ง Service..."; Flags: runhidden waituntilterminated; Check: not IsServiceInstalled
+; ติดตั้ง Node.js เฉพาะเมื่อยังไม่มี
+Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\node-lts-x64.msi"" /qn /norestart ADDLOCAL=ALL"; StatusMsg: "ติดตั้ง Node.js..."; Flags: runhidden waituntilterminated; Check: not IsNodeInstalled
+; หยุดและลบ service เก่า (กรณี upgrade)
+Filename: "{app}\tools\nssm.exe"; Parameters: "stop {#ServiceName}"; Flags: runhidden waituntilterminated; Check: IsServiceInstalled
+Filename: "{app}\tools\nssm.exe"; Parameters: "remove {#ServiceName} confirm"; Flags: runhidden waituntilterminated; Check: IsServiceInstalled
+; ติดตั้ง Windows Service ใหม่ โดยใช้ path node.exe ที่ detect ได้
+Filename: "{app}\tools\nssm.exe"; Parameters: "install {#ServiceName} ""{code:GetNodeExePath}"" ""{app}\server.js"""; StatusMsg: "ลงทะเบียน Windows Service..."; Flags: runhidden waituntilterminated
 Filename: "{app}\tools\nssm.exe"; Parameters: "set {#ServiceName} AppDirectory ""{app}"""; Flags: runhidden waituntilterminated
 Filename: "{app}\tools\nssm.exe"; Parameters: "set {#ServiceName} DisplayName ""Medical Record System"""; Flags: runhidden waituntilterminated
+Filename: "{app}\tools\nssm.exe"; Parameters: "set {#ServiceName} Description ""ระบบงานเวชระเบียน - Medical Record System"""; Flags: runhidden waituntilterminated
 Filename: "{app}\tools\nssm.exe"; Parameters: "set {#ServiceName} Start SERVICE_AUTO_START"; Flags: runhidden waituntilterminated
 Filename: "{app}\tools\nssm.exe"; Parameters: "set {#ServiceName} AppNoConsole 1"; Flags: runhidden waituntilterminated
+Filename: "{app}\tools\nssm.exe"; Parameters: "set {#ServiceName} AppStdout ""{app}\logs\service.log"""; Flags: runhidden waituntilterminated
+Filename: "{app}\tools\nssm.exe"; Parameters: "set {#ServiceName} AppStderr ""{app}\logs\error.log"""; Flags: runhidden waituntilterminated
+Filename: "{app}\tools\nssm.exe"; Parameters: "set {#ServiceName} AppRotateFiles 1"; Flags: runhidden waituntilterminated
+Filename: "{app}\tools\nssm.exe"; Parameters: "set {#ServiceName} AppRotateBytes 10485760"; Flags: runhidden waituntilterminated
 Filename: "{app}\tools\nssm.exe"; Parameters: "start {#ServiceName}"; StatusMsg: "เริ่มต้นระบบ..."; Flags: runhidden waituntilterminated
+; เปิดโปรแกรมทันทีหลังติดตั้ง
 Filename: "wscript.exe"; Parameters: """{app}\launcher.vbs"""; Flags: shellexec postinstall skipifsilent; Description: "เปิดโปรแกรมทันที"
 
 [UninstallRun]
-Filename: "{app}\tools\nssm.exe"; Parameters: "stop {#ServiceName}"; Flags: runhidden waituntilterminated
-Filename: "{app}\tools\nssm.exe"; Parameters: "remove {#ServiceName} confirm"; Flags: runhidden waituntilterminated
+Filename: "{app}\tools\nssm.exe"; Parameters: "stop {#ServiceName}"; Flags: runhidden waituntilterminated; Check: IsServiceInstalled
+Filename: "{app}\tools\nssm.exe"; Parameters: "remove {#ServiceName} confirm"; Flags: runhidden waituntilterminated; Check: IsServiceInstalled
+
+[Dirs]
+Name: "{app}\logs"
 
 [Code]
-function IsNodeInstalled: Boolean;
-var Ver: String;
+{ ---- หา path ของ node.exe ---- }
+function GetNodeExePath(Param: String): String;
+var
+  InstallPath: String;
 begin
-  Result := RegQueryStringValue(HKLM, 'SOFTWARE\Node.js', 'Version', Ver) or
-            RegQueryStringValue(HKLM64, 'SOFTWARE\Node.js', 'Version', Ver);
+  { ลองอ่านจาก registry (MSI ใหม่ๆ บันทึกที่นี่) }
+  if RegQueryStringValue(HKLM64, 'SOFTWARE\Node.js', 'InstallPath', InstallPath) or
+     RegQueryStringValue(HKLM,   'SOFTWARE\Node.js', 'InstallPath', InstallPath) then
+  begin
+    if FileExists(InstallPath + '\node.exe') then
+    begin
+      Result := InstallPath + '\node.exe';
+      Exit;
+    end;
+  end;
+  { fallback: path มาตรฐาน }
+  if FileExists('C:\Program Files\nodejs\node.exe') then
+    Result := 'C:\Program Files\nodejs\node.exe'
+  else if FileExists('C:\Program Files (x86)\nodejs\node.exe') then
+    Result := 'C:\Program Files (x86)\nodejs\node.exe'
+  else
+    Result := 'node.exe'; { ใช้ PATH เป็น last resort }
 end;
 
+{ ---- ตรวจสอบ Node.js ---- }
+function IsNodeInstalled: Boolean;
+var
+  Ver: String;
+begin
+  Result := RegQueryStringValue(HKLM64, 'SOFTWARE\Node.js', 'Version', Ver) or
+            RegQueryStringValue(HKLM,   'SOFTWARE\Node.js', 'Version', Ver);
+  if not Result then
+    Result := FileExists('C:\Program Files\nodejs\node.exe') or
+              FileExists('C:\Program Files (x86)\nodejs\node.exe');
+end;
+
+{ ---- ตรวจสอบ Service ---- }
 function IsServiceInstalled: Boolean;
 var ResultCode: Integer;
 begin
@@ -68,17 +117,18 @@ begin
   Result := (ResultCode = 0);
 end;
 
+{ ---- สร้าง config.json เริ่มต้น (ถ้ายังไม่มี) ---- }
 procedure CurStepChanged(CurStep: TSetupStep);
 var ConfigFile: String;
 begin
-  if CurStep = ssInstall then begin
+  if CurStep = ssPostInstall then begin
     ConfigFile := ExpandConstant('{app}\config.json');
     if not FileExists(ConfigFile) then begin
       SaveStringToFile(ConfigFile,
         '{' + #13#10 +
-        '  "dbType": "postgresql",' + #13#10 +
+        '  "dbType": "mysql",' + #13#10 +
         '  "host": "localhost",' + #13#10 +
-        '  "port": "5432",' + #13#10 +
+        '  "port": "3306",' + #13#10 +
         '  "database": "",' + #13#10 +
         '  "username": "",' + #13#10 +
         '  "password": ""' + #13#10 +

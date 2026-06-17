@@ -107,6 +107,55 @@ async function dbQuery(sql, params = []) {
   }
 }
 
+// รัน query หลายคำสั่งใน transaction เดียว (commit ทั้งหมด หรือ rollback ทั้งหมดถ้ามีอันใดล้มเหลว)
+// ป้องกันกรณี DELETE สำเร็จแล้วแต่ INSERT ถัดไปล้มเหลว ทำให้ข้อมูลหายไปจริง
+async function withTransaction(fn) {
+  if (!dbConn) throw new Error('ยังไม่ได้เชื่อมต่อฐานข้อมูล กรุณาตั้งค่าการเชื่อมต่อก่อน');
+
+  if (dbConn.type === 'postgresql') {
+    const client = await dbConn.pool.connect();
+    const query = async (sql, params = []) => {
+      let i = 0;
+      const adapted = sql
+        .replace(/DATEDIFF\(([^,]+),\s*([^)]+)\)/gi, '($1::date - $2::date)')
+        .replace(/\?/g, () => `$${++i}`);
+      const result = await client.query(adapted, params);
+      return result.rows;
+    };
+    try {
+      await client.query('BEGIN');
+      const result = await fn(query);
+      await client.query('COMMIT');
+      return result;
+    } catch (e) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+      throw e;
+    } finally {
+      client.release();
+    }
+  } else {
+    const conn = await dbConn.pool.getConnection();
+    const query = async (sql, params = []) => {
+      const adaptedSQL = sql
+        .replace(/AS VARCHAR\((\d+)\)/gi, 'AS CHAR($1)')
+        .replace(/string_agg\(([^,]+),\s*'([^']*)'\)/gi, "GROUP_CONCAT($1 SEPARATOR '$2')");
+      const [rows] = await conn.query(adaptedSQL, params);
+      return rows;
+    };
+    try {
+      await conn.beginTransaction();
+      const result = await fn(query);
+      await conn.commit();
+      return result;
+    } catch (e) {
+      try { await conn.rollback(); } catch (_) {}
+      throw e;
+    } finally {
+      conn.release();
+    }
+  }
+}
+
 // Auto-connect on startup
 (async () => {
   const cfg = loadConfig();
@@ -1763,47 +1812,28 @@ app.post('/api/diagnosis', requireAuth, async (req, res) => {
     const officerName = req.user.officer_name || loginName;
     const confirmVal  = confirmed ? 'Y' : '';
 
-    // ลบข้อมูลเดิมของ vn นี้ก่อน (ICD10 + ICD9CM)
-    try { await dbQuery(`DELETE FROM ovstdiag WHERE vn = ?`, [vn]); } catch (_) {}
+    // รันทั้งหมดใน transaction เดียว: ถ้า INSERT ใดล้มเหลว จะ ROLLBACK การ DELETE ด้วย
+    // ป้องกันไม่ให้ข้อมูลเดิมของ vn นี้ถูกลบทิ้งโดยไม่มีข้อมูลใหม่มาแทน
+    await withTransaction(async (query) => {
+      // ลบข้อมูลเดิมของ vn นี้ก่อน (ICD10 + ICD9CM)
+      await query(`DELETE FROM ovstdiag WHERE vn = ?`, [vn]);
 
-    // ── บันทึก ICD10 ──────────────────────────────────────────────────────────
-    for (const dx of diagnoses) {
-      const { icd10, diagtype } = dx;
-      try {
-        await dbQuery(
-          `INSERT INTO ovstdiag
-             (ovst_diag_id, vn, hn, vstdate, vsttime,
-              dx_guid, confirm, confirm_staff,
-              icd10, diagtype, icd103, doctor, staff)
-           SELECT
-             get_serialnumber('ovst_diag_id'),
-             v.vn, v.hn, v.vstdate, v.vsttime,
-             'approve', ?, ?,
-             ?, ?,
-             COALESCE(i.code3, ''),
-             ?, ?
-           FROM ovst v
-           LEFT OUTER JOIN icd101 i ON i.code = ?
-           WHERE v.vn = ?`,
-          [confirmVal, officerName,
-           icd10, diagtype,
-           doctor_code || '', loginName,
-           icd10, vn]
-        );
-      } catch (e1) {
-        console.log('[save icd10] L1:', e1.message);
+      // ── บันทึก ICD10 ────────────────────────────────────────────────────────
+      for (const dx of diagnoses) {
+        const { icd10, diagtype } = dx;
         try {
-          await dbQuery(
+          await query(
             `INSERT INTO ovstdiag
-               (vn, hn, vstdate, vsttime,
+               (ovst_diag_id, vn, hn, vstdate, vsttime,
                 dx_guid, confirm, confirm_staff,
-                icd10, diagtype, icd103, doctor, staff)
+                icd10, diagtype, icd103, doctor, staff, update_datetime)
              SELECT
+               get_serialnumber('ovst_diag_id'),
                v.vn, v.hn, v.vstdate, v.vsttime,
                'approve', ?, ?,
                ?, ?,
                COALESCE(i.code3, ''),
-               ?, ?
+               ?, ?, CURRENT_TIMESTAMP
              FROM ovst v
              LEFT OUTER JOIN icd101 i ON i.code = ?
              WHERE v.vn = ?`,
@@ -1812,110 +1842,74 @@ app.post('/api/diagnosis', requireAuth, async (req, res) => {
              doctor_code || '', loginName,
              icd10, vn]
           );
-        } catch (e2) {
-          console.log('[save icd10] L2:', e2.message);
-        }
-      }
-    }
-
-    // ── บันทึก ICD9CM ลง ovstdiag ────────────────────────────────────────────
-    if (Array.isArray(procedures) && procedures.length > 0) {
-      for (const proc of procedures) {
-        const { icd9cm, oper_type: operTypeId, ext_code, doctor_raw } = proc;
-
-        // lookup oper_type.code
-        let operTypeCode = '';
-        if (operTypeId) {
-          try {
-            const otRows = await dbQuery(
-              `SELECT code FROM oper_type WHERE oper_type_id = ? LIMIT 1`, [operTypeId]);
-            if (otRows.length) operTypeCode = String(otRows[0].code || '');
-          } catch (_) { operTypeCode = String(operTypeId); }
-        }
-
-        let saved = false;
-
-        // Level 1: with ovst_oper_type + ext_code
-        try {
-          await dbQuery(
+        } catch (e1) {
+          console.log('[save icd10] L1:', e1.message);
+          await query(
             `INSERT INTO ovstdiag
-               (ovst_diag_id, vn, hn, vstdate, vsttime,
+               (vn, hn, vstdate, vsttime,
                 dx_guid, confirm, confirm_staff,
-                icd10, diagtype, doctor, staff,
-                ovst_oper_type, ext_code)
+                icd10, diagtype, icd103, doctor, staff, update_datetime)
              SELECT
-               get_serialnumber('ovst_diag_id'),
                v.vn, v.hn, v.vstdate, v.vsttime,
                'approve', ?, ?,
-               ?, 4, ?, ?,
+               ?, ?,
+               COALESCE(i.code3, ''),
+               ?, ?, CURRENT_TIMESTAMP
+             FROM ovst v
+             LEFT OUTER JOIN icd101 i ON i.code = ?
+             WHERE v.vn = ?`,
+            [confirmVal, officerName,
+             icd10, diagtype,
+             doctor_code || '', loginName,
+             icd10, vn]
+          );
+        }
+      }
+
+      // ── บันทึก ICD9CM ลง ovstdiag ───────────────────────────────────────────
+      if (Array.isArray(procedures) && procedures.length > 0) {
+        for (const proc of procedures) {
+          const { icd9cm, oper_type: operTypeName, ext_code, doctor_raw } = proc;
+
+          // lookup oper_type.oper_type (รหัส integer) จากชื่อที่เลือก
+          // หมายเหตุ: ตาราง oper_type มีคอลัมน์ oper_type(id) กับ name เท่านั้น ไม่มี code
+          let operTypeCode = null;
+          if (operTypeName) {
+            const otRows = await query(
+              `SELECT oper_type AS code FROM oper_type WHERE name = ? LIMIT 1`, [operTypeName]);
+            if (otRows.length) operTypeCode = otRows[0].code;
+          }
+
+          // ovst_diag_id = MAX(ovst_diag_id)+1, diagtype = 2, update_datetime = เวลาปัจจุบัน
+          await query(
+            `INSERT INTO ovstdiag
+               (ovst_diag_id, vn, hn, vstdate, vsttime,
+                icd10, diagtype, doctor, staff, update_datetime,
+                ovst_oper_type, ext_code)
+             SELECT
+               (SELECT COALESCE(MAX(ovst_diag_id),0)+1 FROM ovstdiag),
+               v.vn, v.hn, v.vstdate, v.vsttime,
+               ?, 2, ?, ?, CURRENT_TIMESTAMP,
                ?, ?
              FROM ovst v WHERE v.vn = ?`,
-            [confirmVal, officerName,
-             icd9cm, doctor_raw || '', loginName,
+            [icd9cm, doctor_raw || '', loginName,
              operTypeCode, ext_code || '',
              vn]
           );
-          saved = true;
-          console.log(`[save icd9cm] L1 OK ${icd9cm}`);
-        } catch (e1) {
-          console.log('[save icd9cm] L1:', e1.message);
+          console.log(`[save icd9cm] OK ${icd9cm}`);
         }
-
-        // Level 2: without get_serialnumber
-        if (!saved) {
-          try {
-            await dbQuery(
-              `INSERT INTO ovstdiag
-                 (vn, hn, vstdate, vsttime,
-                  dx_guid, confirm, confirm_staff,
-                  icd10, diagtype, doctor, staff,
-                  ovst_oper_type, ext_code)
-               SELECT
-                 v.vn, v.hn, v.vstdate, v.vsttime,
-                 'approve', ?, ?,
-                 ?, 4, ?, ?,
-                 ?, ?
-               FROM ovst v WHERE v.vn = ?`,
-              [confirmVal, officerName,
-               icd9cm, doctor_raw || '', loginName,
-               operTypeCode, ext_code || '',
-               vn]
-            );
-            saved = true;
-            console.log(`[save icd9cm] L2 OK ${icd9cm}`);
-          } catch (e2) {
-            console.log('[save icd9cm] L2:', e2.message);
-          }
-        }
-
-        // Level 3: minimal
-        if (!saved) {
-          try {
-            await dbQuery(
-              `INSERT INTO ovstdiag (vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff)
-               SELECT v.vn, v.hn, v.vstdate, v.vsttime, ?, 4, ?, ?
-               FROM ovst v WHERE v.vn = ?`,
-              [icd9cm, doctor_raw || '', loginName, vn]
-            );
-            saved = true;
-            console.log(`[save icd9cm] L3 OK ${icd9cm}`);
-          } catch (e3) {
-            console.log('[save icd9cm] L3:', e3.message);
-          }
-        }
-
-        if (!saved) console.log(`[save icd9cm] ALL FAILED for ${icd9cm}`);
       }
-    }
 
-    // อัปเดต PDX ใน vn_stat
-    if (diagnoses.length > 0) {
-      const primary = diagnoses.find(d => parseInt(d.diagtype) === 1) || diagnoses[0];
-      try { await dbQuery('UPDATE vn_stat SET pdx = ? WHERE vn = ?', [primary.icd10, vn]); } catch (_) {}
-    }
+      // อัปเดต PDX ใน vn_stat
+      if (diagnoses.length > 0) {
+        const primary = diagnoses.find(d => parseInt(d.diagtype) === 1) || diagnoses[0];
+        await query('UPDATE vn_stat SET pdx = ? WHERE vn = ?', [primary.icd10, vn]);
+      }
+    });
 
     res.json({ success: true, message: 'บันทึกการวินิจฉัยสำเร็จ' });
   } catch (error) {
+    console.log('[save diagnosis] ROLLBACK:', error.message);
     res.json({ success: false, message: error.message });
   }
 });
@@ -1949,17 +1943,12 @@ app.get('/api/icd9cm/search', requireAuth, async (req, res) => {
 });
 
 app.get('/api/oper-types', requireAuth, async (req, res) => {
-  const queries = [
-    `SELECT oper_type_id AS id, name, COALESCE(code,'') AS code FROM oper_type ORDER BY oper_type_id LIMIT 200`,
-    `SELECT oper_type_id AS id, name, CAST(oper_type_id AS CHAR(20)) AS code FROM oper_type ORDER BY oper_type_id LIMIT 200`,
-    `SELECT id, name, COALESCE(code,'') AS code FROM oper_type ORDER BY id LIMIT 200`,
-    `SELECT id, name, CAST(id AS CHAR(20)) AS code FROM oper_type ORDER BY id LIMIT 200`,
-  ];
-  let rows = [];
-  for (const q of queries) {
-    try { rows = await dbQuery(q, []); break; } catch (_) {}
+  try {
+    const rows = await dbQuery(`SELECT name FROM oper_type ORDER BY name`, []);
+    res.json({ success: true, data: rows });
+  } catch (e) {
+    res.json({ success: false, message: e.message });
   }
-  res.json({ success: true, data: rows });
 });
 
 app.get('/api/ovst-doctor/:vn', requireAuth, async (req, res) => {
@@ -1971,7 +1960,7 @@ app.get('/api/ovst-doctor/:vn', requireAuth, async (req, res) => {
         `SELECT o.doctor AS doctor_raw,
                 COALESCE(d.name, '') AS doctor_name
          FROM ovst o
-           LEFT OUTER JOIN doctor d ON d.cod = o.doctor
+           LEFT OUTER JOIN doctor d ON d.code = o.doctor
          WHERE o.vn = ? LIMIT 1`,
         [vn]
       );
@@ -1993,16 +1982,15 @@ app.get('/api/icd9cm/:vn', requireAuth, async (req, res) => {
     let rows = [];
     try {
       rows = await dbQuery(
-        `SELECT oo.vn, oo.icd9cm, i.name AS icd9cm_name,
-                oo.oper_type, ot.name AS oper_type_name,
-                oo.ext_code, oo.doctor AS doctor_raw,
-                COALESCE(d.code, oo.doctor, '') AS doctor_code
-         FROM ovstoper oo
-           LEFT OUTER JOIN icd9cm1 i    ON i.code           = oo.icd9cm
-           LEFT OUTER JOIN oper_type ot ON ot.oper_type_id  = oo.oper_type
-           LEFT OUTER JOIN doctor d     ON d.cod            = oo.doctor
-         WHERE oo.vn = ?
-         ORDER BY oo.icd9cm`,
+        `SELECT od.icd10 AS icd9cm, i.name AS icd9cm_name,
+                ot.name AS oper_type, ot.name AS oper_type_name,
+                od.ext_code, od.doctor AS doctor_raw
+         FROM ovstdiag od
+           LEFT OUTER JOIN icd9cm1 i    ON i.code        = od.icd10
+           LEFT OUTER JOIN oper_type ot ON ot.oper_type  = od.ovst_oper_type
+         WHERE od.vn = ?
+           AND od.icd10 BETWEEN '0' AND '99999'
+         ORDER BY od.icd10`,
         [vn]
       );
     } catch (e1) {

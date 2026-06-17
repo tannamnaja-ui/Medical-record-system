@@ -1,6 +1,6 @@
-; Medical Record System - Inno Setup Script v1.2.1
+; Medical Record System - Inno Setup Script v1.2.2
 #define AppName "Medical Record System"
-#define AppVersion "1.2.1"
+#define AppVersion "1.2.2"
 #define ServiceName "MedicalRecordSystem"
 
 [Setup]
@@ -53,12 +53,14 @@ Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\node-lts-x64.msi"" /qn /noresta
 Filename: "{app}\tools\nssm.exe"; Parameters: "stop {#ServiceName}"; Flags: runhidden waituntilterminated; Check: IsServiceInstalled
 Filename: "{app}\tools\nssm.exe"; Parameters: "remove {#ServiceName} confirm"; Flags: runhidden waituntilterminated; Check: IsServiceInstalled
 ; ติดตั้ง Windows Service ใหม่ โดยใช้ path node.exe ที่ detect ได้
-; หมายเหตุ: ต้องตั้งค่า server.js ผ่าน "set AppParameters" แยกขั้นตอน ไม่ใส่รวมกับ
-; "install" เพราะ NSSM แตก argument ที่มีช่องว่าง (เช่น "C:\Program Files...") ผิดพลาด
-; ทำให้ Node หา module ไม่เจอ (error: Cannot find module 'C:\Program')
+; หมายเหตุสำคัญ: ห้ามส่ง path เต็มของ server.js (มีช่องว่างเช่น "Program Files")
+; เป็นค่า AppParameters เด็ดขาด เพราะ NSSM ไม่รักษา quote ของค่านี้ไว้ตอนเก็บ
+; ทำให้ตอนรันจริง path ถูกตัดที่ช่องว่าง (error: Cannot find module 'C:\Program')
+; วิธีแก้ที่ปลอดภัย 100%: ใช้ชื่อไฟล์ relative "server.js" (ไม่มีช่องว่างเลย)
+; ร่วมกับ AppDirectory เป็น working directory แทน
 Filename: "{app}\tools\nssm.exe"; Parameters: "install {#ServiceName} ""{code:GetNodeExePath}"""; StatusMsg: "ลงทะเบียน Windows Service..."; Flags: runhidden waituntilterminated
-Filename: "{app}\tools\nssm.exe"; Parameters: "set {#ServiceName} AppParameters ""{app}\server.js"""; Flags: runhidden waituntilterminated
 Filename: "{app}\tools\nssm.exe"; Parameters: "set {#ServiceName} AppDirectory ""{app}"""; Flags: runhidden waituntilterminated
+Filename: "{app}\tools\nssm.exe"; Parameters: "set {#ServiceName} AppParameters server.js"; Flags: runhidden waituntilterminated
 Filename: "{app}\tools\nssm.exe"; Parameters: "set {#ServiceName} DisplayName ""Medical Record System"""; Flags: runhidden waituntilterminated
 Filename: "{app}\tools\nssm.exe"; Parameters: "set {#ServiceName} Description ""ระบบงานเวชระเบียน - Medical Record System"""; Flags: runhidden waituntilterminated
 Filename: "{app}\tools\nssm.exe"; Parameters: "set {#ServiceName} Start SERVICE_AUTO_START"; Flags: runhidden waituntilterminated

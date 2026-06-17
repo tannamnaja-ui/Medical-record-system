@@ -544,7 +544,7 @@ async function loadOperTypes() {
     return;
   }
   el.innerHTML = '<option value="">-- เลือก oper type --</option>' +
-    operTypes.map(t => `<option value="${escAttr(String(t.id))}">${escHtml(t.name)}</option>`).join('');
+    operTypes.map(t => `<option value="${escAttr(String(t.name))}">${escHtml(t.name)}</option>`).join('');
 }
 
 async function loadIcd9cm() {

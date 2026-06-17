@@ -991,11 +991,58 @@ app.get('/api/chart/find-an', requireAuth, async (req, res) => {
         LEFT OUTER JOIN doctor dct1    ON dct1.code   = il1.doctor
         LEFT OUTER JOIN ipt_chart_location icl ON icl.an = ipt.an
         LEFT OUTER JOIN ipt_summary_status iss ON iss.ipt_summary_status_id = ipt.ipt_summary_status_id
-      WHERE (ipt.an LIKE ? OR ipt.hn LIKE ?
-             OR CONCAT(p.pname,p.fname,' ',p.lname) LIKE ?)
+      WHERE ipt.an LIKE ?
         AND ipt.confirm_discharge = 'Y'
       ORDER BY ipt.dchdate DESC LIMIT 50`,
-      [qLike, qLike, qLike]);
+      [qLike]);
+    res.json({ success: true, data: rows });
+  } catch (e) {
+    res.json({ success: false, message: e.message });
+  }
+});
+
+app.get('/api/chart/find-hn', requireAuth, async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q) return res.json({ success: true, data: [] });
+    const qLike = `%${q}%`;
+    const rows = await dbQuery(`
+      SELECT ipt.an, ipt.hn,
+             TO_CHAR(ipt.regdate, 'YYYY-MM-DD') AS regdate, ipt.regtime,
+             TO_CHAR(ipt.dchdate, 'YYYY-MM-DD') AS dchdate,
+             CAST(CONCAT(p.pname,p.fname,' ',p.lname) AS VARCHAR(250)) AS patient_name,
+             CAST(CONCAT(COALESCE(spclty.name,''),' - ',COALESCE(w.name,'')) AS VARCHAR(250)) AS spclty_ward_name,
+             w.name AS ward_name, ipt.ward,
+             iptdiag.icd10,
+             CAST(CONCAT(COALESCE(iptdiag.icd10,''),' - ',COALESCE(i1.name,'')) AS VARCHAR(250)) AS icdname,
+             ptt.name AS pttype_name, dt.name AS admdoctor_name,
+             dc1.name AS dchtype_name, aa.age_y, aa.age_m, aa.age_d,
+             aa.diag_text_list, NULL AS chart_receive_date,
+             CASE WHEN ipt.an IN (SELECT an FROM ipt_chart_location WHERE chart_date IS NOT NULL)
+               THEN 'Y' ELSE 'N' END AS chart_received,
+             COALESCE(iss.ipt_summary_status_name, '') AS chart_status_name,
+             '' AS chart_receive_staff, '' AS receiver_name,
+             dct1.name AS incharge_doctor_name,
+             (CURRENT_DATE::DATE - TO_DATE(TO_CHAR(ipt.dchdate,'YYYY-MM-DD'),'YYYY-MM-DD')) AS days_since_dch
+      FROM ipt
+        LEFT OUTER JOIN patient p      ON p.hn       = ipt.hn
+        LEFT OUTER JOIN spclty         ON spclty.spclty = ipt.spclty
+        LEFT OUTER JOIN ward w         ON w.ward      = ipt.ward
+        LEFT OUTER JOIN iptdiag        ON iptdiag.an  = ipt.an AND iptdiag.diagtype = '1'
+        LEFT OUTER JOIN icd101 i1      ON i1.code     = SUBSTRING(iptdiag.icd10,1,3)
+        LEFT OUTER JOIN an_stat aa     ON aa.an       = ipt.an
+        LEFT OUTER JOIN ipt_pttype ip1 ON ip1.an      = ipt.an AND ip1.pttype_number = 1
+        LEFT OUTER JOIN pttype ptt     ON ptt.pttype  = ip1.pttype
+        LEFT OUTER JOIN doctor dt      ON dt.code     = ipt.admdoctor
+        LEFT OUTER JOIN dchtype dc1    ON dc1.dchtype = ipt.dchtype
+        LEFT OUTER JOIN ipt_doctor_list il1 ON il1.an = ipt.an AND il1.ipt_doctor_type_id = 1 AND il1.active_doctor = 'Y'
+        LEFT OUTER JOIN doctor dct1    ON dct1.code   = il1.doctor
+        LEFT OUTER JOIN ipt_chart_location icl ON icl.an = ipt.an
+        LEFT OUTER JOIN ipt_summary_status iss ON iss.ipt_summary_status_id = ipt.ipt_summary_status_id
+      WHERE ipt.hn LIKE ?
+        AND ipt.confirm_discharge = 'Y'
+      ORDER BY ipt.dchdate DESC LIMIT 50`,
+      [qLike]);
     res.json({ success: true, data: rows });
   } catch (e) {
     res.json({ success: false, message: e.message });

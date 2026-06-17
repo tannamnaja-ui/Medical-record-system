@@ -123,6 +123,8 @@ async function loadData() {
 
   showLoading(true);
   document.getElementById('searchInput').value = '';
+  const _anInp = document.getElementById('searchInputAN');
+  if (_anInp) _anInp.value = '';
   document.getElementById('rowCount').textContent = '';
 
   try {
@@ -170,29 +172,51 @@ function showError(msg) {
 }
 
 // ─── Search Input Events ──────────────────────────────────────────────────────
-let searchTimer = null;
+let searchTimer   = null;
+let searchTimerAN = null;
 
 function initSearchInput() {
+  // ช่องค้นหาเดิม → ค้นด้วย HN อย่างเดียว
   const inp = document.getElementById('searchInput');
-  if (!inp) return;
+  if (inp) {
+    // oninput: debounce 300ms → ค้นจาก server ไม่สนใจวันที่
+    inp.addEventListener('input', () => {
+      const q = inp.value.trim();
+      clearTimeout(searchTimer);
+      if (!q) { applyFilter(); return; }
+      searchTimer = setTimeout(() => fetchByHN(q), 300);
+    });
 
-  // oninput: debounce 300ms → ค้นจาก server ไม่สนใจวันที่
-  inp.addEventListener('input', () => {
-    const q = inp.value.trim();
-    clearTimeout(searchTimer);
-    if (!q) { applyFilter(); return; }
-    searchTimer = setTimeout(() => fetchByAN(q), 300);
-  });
+    // Enter: fetch ทันที ไม่รอ debounce
+    inp.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      clearTimeout(searchTimer);
+      const q = inp.value.trim();
+      if (!q) { applyFilter(); return; }
+      fetchByHN(q);
+    });
+  }
 
-  // Enter: fetch ทันที ไม่รอ debounce
-  inp.addEventListener('keydown', e => {
-    if (e.key !== 'Enter') return;
-    e.preventDefault();
-    clearTimeout(searchTimer);
-    const q = inp.value.trim();
-    if (!q) { applyFilter(); return; }
-    fetchByAN(q);
-  });
+  // ช่องค้นหาใหม่ → ค้นด้วย AN
+  const inpAN = document.getElementById('searchInputAN');
+  if (inpAN) {
+    inpAN.addEventListener('input', () => {
+      const q = inpAN.value.trim();
+      clearTimeout(searchTimerAN);
+      if (!q) { applyFilter(); return; }
+      searchTimerAN = setTimeout(() => fetchByAN(q), 300);
+    });
+
+    inpAN.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      clearTimeout(searchTimerAN);
+      const q = inpAN.value.trim();
+      if (!q) { applyFilter(); return; }
+      fetchByAN(q);
+    });
+  }
 }
 
 async function fetchByAN(q) {
@@ -200,7 +224,21 @@ async function fetchByAN(q) {
   try {
     const res  = await apiFetch(`/api/chart/find-an?q=${encodeURIComponent(q)}`);
     const data = await res.json();
-    if (data.success) renderTable(data.data || []);
+    if (data.success) { allData = data.data || []; renderTable(allData); }
+    else showError(data.message);
+  } catch (e) {
+    if (e.message !== 'กรุณาเข้าสู่ระบบ') showError(e.message);
+  } finally {
+    showLoading(false);
+  }
+}
+
+async function fetchByHN(q) {
+  showLoading(true);
+  try {
+    const res  = await apiFetch(`/api/chart/find-hn?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    if (data.success) { allData = data.data || []; renderTable(allData); }
     else showError(data.message);
   } catch (e) {
     if (e.message !== 'กรุณาเข้าสู่ระบบ') showError(e.message);
@@ -213,16 +251,13 @@ function onSearch() {}        // ไม่ใช้แล้ว (ใช้ liste
 function onSearchEnter() {}   // ไม่ใช้แล้ว
 
 function applyFilter() {
-  const q           = document.getElementById('searchInput').value.trim();
-  const qLow        = q.toLowerCase();
+  const q           = document.getElementById('searchInput').value.trim().toLowerCase();
+  const qAn         = (document.getElementById('searchInputAN')?.value.trim() || '').toLowerCase();
   const notReceived = document.getElementById('chkNotReceived').checked;
 
   const filtered = allData.filter(p => {
-    if (qLow && !(
-      (p.patient_name || '').toLowerCase().includes(qLow) ||
-      (p.an || '').toString().includes(qLow) ||
-      (p.hn || '').toString().includes(qLow)
-    )) return false;
+    if (q   && !((p.hn || '').toString().toLowerCase().includes(q)))   return false;
+    if (qAn && !((p.an || '').toString().toLowerCase().includes(qAn))) return false;
     if (currentMode === 'borrowed') {
       // สำหรับ borrowed: ใช้ checkin field จาก ipdrent
       if (notReceived && p.checkin !== 'N') return false;

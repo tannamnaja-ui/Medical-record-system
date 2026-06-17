@@ -1,6 +1,6 @@
-; Medical Record System - Inno Setup Script v1.2.2
+; Medical Record System - Inno Setup Script v1.2.3
 #define AppName "Medical Record System"
-#define AppVersion "1.2.2"
+#define AppVersion "1.2.3"
 #define ServiceName "MedicalRecordSystem"
 
 [Setup]
@@ -81,6 +81,35 @@ Filename: "{app}\tools\nssm.exe"; Parameters: "remove {#ServiceName} confirm"; F
 Name: "{app}\logs"
 
 [Code]
+{ ---- หา uninstall string ของเวอร์ชันเดิม (ถ้ามี) ---- }
+function GetUninstallString(): String;
+var
+  UninstPath: String;
+  UninstStr:  String;
+begin
+  UninstPath := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}_is1';
+  UninstStr := '';
+  if not RegQueryStringValue(HKLM64, UninstPath, 'UninstallString', UninstStr) then
+    RegQueryStringValue(HKLM, UninstPath, 'UninstallString', UninstStr);
+  Result := UninstStr;
+end;
+
+{ ---- ถอนการติดตั้งเวอร์ชันเดิมแบบ silent ก่อนเริ่มติดตั้งใหม่ ---- }
+function InitializeSetup(): Boolean;
+var
+  UninstStr:  String;
+  ResultCode: Integer;
+begin
+  Result := True;
+  UninstStr := GetUninstallString();
+  if UninstStr <> '' then
+  begin
+    UninstStr := RemoveQuotes(UninstStr);
+    Exec(UninstStr, '/SILENT /NORESTART /SUPPRESSMSGBOXES', '', SW_HIDE,
+      ewWaitUntilTerminated, ResultCode);
+  end;
+end;
+
 { ---- หา path ของ node.exe ---- }
 function GetNodeExePath(Param: String): String;
 var

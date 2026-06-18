@@ -1228,10 +1228,10 @@ app.get('/api/chart/patients', requireAuth, async (req, res) => {
              w.name AS ward_name,
              ptt.name AS pttype_name,
              dct1.name AS incharge_doctor_name,
-             aa.chart_receive_date,
-             '' AS chart_receive_staff,
+             icl.chart_date AS chart_receive_date,
+             COALESCE(icl.staff,'') AS chart_receive_staff,
              '' AS receiver_login,
-             '' AS receiver_name,
+             COALESCE(o2.officer_name,'') AS receiver_name,
              aa.diag_text_list,
              (CURRENT_DATE::DATE - TO_DATE(TO_CHAR(ipt.dchdate,'YYYY-MM-DD'),'YYYY-MM-DD')) AS days_since_dch
       FROM ipt
@@ -1243,6 +1243,8 @@ app.get('/api/chart/patients', requireAuth, async (req, res) => {
         LEFT OUTER JOIN pttype ptt     ON ptt.pttype   = ip1.pttype
         LEFT OUTER JOIN ipt_doctor_list il1 ON il1.an  = ipt.an AND il1.ipt_doctor_type_id = 1 AND il1.active_doctor = 'Y'
         LEFT OUTER JOIN doctor dct1    ON dct1.code    = il1.doctor
+        LEFT OUTER JOIN ipt_chart_location icl ON icl.an = ipt.an
+        LEFT OUTER JOIN officer o2     ON o2.officer_login_name = icl.staff
       WHERE ipt.dchdate BETWEEN ? AND ?
         ${extraWhere}
       ORDER BY ipt.dchdate DESC, ipt.regdate DESC
@@ -1394,86 +1396,124 @@ app.get('/api/ipd/diagnosis/:an', requireAuth, async (req, res) => {
 
 app.post('/api/ipd/diagnosis', requireAuth, async (req, res) => {
   try {
-    const { an, diagnoses, doctor_code, confirmed } = req.body;
+    const { an, diagnoses, doctor_code, confirmed, procedures } = req.body;
     if (!an || !diagnoses || !Array.isArray(diagnoses))
       return res.json({ success: false, message: 'ข้อมูลไม่ครบถ้วน' });
 
     const loginName = req.user.officer_login_name || '';
 
-    // ลบ ICD10 เดิมที่ไม่ใช่ตัวเลข
-    await dbQuery(`DELETE FROM iptdiag WHERE an = ? AND icd10 NOT BETWEEN '0' AND '99999'`, [an]);
+    // รันทั้งหมดใน transaction เดียว: ถ้า INSERT ใดล้มเหลว จะ ROLLBACK การ DELETE ด้วย
+    // ป้องกันไม่ให้ข้อมูลเดิมของ an นี้ถูกลบทิ้งโดยไม่มีข้อมูลใหม่มาแทน (บทเรียนจากฝั่ง OPD)
+    await withTransaction(async (query) => {
+      // ลบ ICD10 เดิมที่ไม่ใช่ตัวเลข (logic เดิม ไม่เปลี่ยนแปลง)
+      await query(`DELETE FROM iptdiag WHERE an = ? AND icd10 NOT BETWEEN '0' AND '99999'`, [an]);
 
-    for (const dx of diagnoses) {
-      const { icd10, diagtype } = dx;
-      let saved = false;
+      for (const dx of diagnoses) {
+        const { icd10, diagtype } = dx;
+        let saved = false;
 
-      // Level 1: ใช้ get_serialnumber + NOW() สำหรับ timestamp
-      try {
-        await dbQuery(`
-          INSERT INTO iptdiag (
-            ipt_diag_id, an, diagtype, doctor, icd10, staff,
-            hn, entry_datetime, modify_datetime, dx_guid, hos_guid
-          )
-          SELECT
-            get_serialnumber('ipt_diag_id'),
-            ipt.an, ?, ?, ?, ?,
-            ipt.hn,
-            NOW(), NOW(),
-            'Y', ?
-          FROM ipt WHERE ipt.an = ?`,
-          [diagtype, doctor_code||'', icd10, loginName, loginName, an]);
-        saved = true;
-        console.log(`[ipd] L1 OK ${icd10}`);
-      } catch (e1) {
-        console.log('[ipd] L1:', e1.message);
-      }
-
-      // Level 2: NOW() ไม่มี entry_datetime/modify_datetime
-      if (!saved) {
+        // Level 1: ใช้ get_serialnumber + NOW() สำหรับ timestamp
         try {
-          await dbQuery(`
+          await query(`
             INSERT INTO iptdiag (
-              ipt_diag_id, an, diagtype, doctor, icd10, staff, hn, dx_guid, hos_guid
+              ipt_diag_id, an, diagtype, doctor, icd10, staff,
+              hn, entry_datetime, modify_datetime, dx_guid, hos_guid
             )
             SELECT
               get_serialnumber('ipt_diag_id'),
               ipt.an, ?, ?, ?, ?,
-              ipt.hn, 'Y', ?
+              ipt.hn,
+              NOW(), NOW(),
+              'Y', ?
             FROM ipt WHERE ipt.an = ?`,
             [diagtype, doctor_code||'', icd10, loginName, loginName, an]);
           saved = true;
-          console.log(`[ipd] L2 OK ${icd10}`);
-        } catch (e2) {
-          console.log('[ipd] L2:', e2.message);
+          console.log(`[ipd] L1 OK ${icd10}`);
+        } catch (e1) {
+          console.log('[ipd] L1:', e1.message);
         }
+
+        // Level 2: NOW() ไม่มี entry_datetime/modify_datetime
+        if (!saved) {
+          try {
+            await query(`
+              INSERT INTO iptdiag (
+                ipt_diag_id, an, diagtype, doctor, icd10, staff, hn, dx_guid, hos_guid
+              )
+              SELECT
+                get_serialnumber('ipt_diag_id'),
+                ipt.an, ?, ?, ?, ?,
+                ipt.hn, 'Y', ?
+              FROM ipt WHERE ipt.an = ?`,
+              [diagtype, doctor_code||'', icd10, loginName, loginName, an]);
+            saved = true;
+            console.log(`[ipd] L2 OK ${icd10}`);
+          } catch (e2) {
+            console.log('[ipd] L2:', e2.message);
+          }
+        }
+
+        // Level 3: minimal — ipt_diag_id + an + icd10 + diagtype
+        if (!saved) {
+          try {
+            await query(`
+              INSERT INTO iptdiag (ipt_diag_id, an, diagtype, doctor, icd10, staff, hn)
+              SELECT get_serialnumber('ipt_diag_id'), ipt.an, ?, ?, ?, ?, ipt.hn
+              FROM ipt WHERE ipt.an = ?`,
+              [diagtype, doctor_code||'', icd10, loginName, an]);
+            saved = true;
+            console.log(`[ipd] L3 OK ${icd10}`);
+          } catch (e3) {
+            console.log('[ipd] L3:', e3.message);
+          }
+        }
+
+        if (!saved) console.log(`[ipd] ALL FAILED for ${icd10}`);
       }
 
-      // Level 3: minimal — ipt_diag_id + an + icd10 + diagtype
-      if (!saved) {
-        try {
-          await dbQuery(`
-            INSERT INTO iptdiag (ipt_diag_id, an, diagtype, doctor, icd10, staff, hn)
-            SELECT get_serialnumber('ipt_diag_id'), ipt.an, ?, ?, ?, ?, ipt.hn
+      // ── บันทึก ICD9CM ลง iptdiag ─────────────────────────────────────────────
+      // หมายเหตุ: คอลัมน์ ipt_oper_type / ext_code เป็นการเดาตาม ovstdiag ฝั่ง OPD
+      // รอ query จริงจากผู้ใช้
+      if (Array.isArray(procedures) && procedures.length > 0) {
+        for (const proc of procedures) {
+          const { icd9cm, oper_type: operTypeName, ext_code, doctor_raw } = proc;
+
+          let operTypeCode = null;
+          if (operTypeName) {
+            const otRows = await query(
+              `SELECT oper_type AS code FROM oper_type WHERE name = ? LIMIT 1`, [operTypeName]);
+            if (otRows.length) operTypeCode = otRows[0].code;
+          }
+
+          await query(`
+            INSERT INTO iptdiag (
+              ipt_diag_id, an, diagtype, doctor, icd10, staff,
+              hn, entry_datetime, modify_datetime,
+              ipt_oper_type, ext_code
+            )
+            SELECT
+              get_serialnumber('ipt_diag_id'),
+              ipt.an, 2, ?, ?, ?,
+              ipt.hn, NOW(), NOW(),
+              ?, ?
             FROM ipt WHERE ipt.an = ?`,
-            [diagtype, doctor_code||'', icd10, loginName, an]);
-          saved = true;
-          console.log(`[ipd] L3 OK ${icd10}`);
-        } catch (e3) {
-          console.log('[ipd] L3:', e3.message);
+            [doctor_raw || '', icd9cm, loginName,
+             operTypeCode, ext_code || '',
+             an]);
+          console.log(`[ipd save icd9cm] OK ${icd9cm}`);
         }
       }
 
-      if (!saved) console.log(`[ipd] ALL FAILED for ${icd10}`);
-    }
-
-    // อัปเดต PDX ใน an_stat
-    if (diagnoses.length > 0) {
-      const primary = diagnoses.find(d => parseInt(d.diagtype) === 1) || diagnoses[0];
-      try { await dbQuery(`UPDATE an_stat SET pdx = ? WHERE an = ?`, [primary.icd10, an]); } catch (_) {}
-    }
+      // อัปเดต PDX ใน an_stat
+      if (diagnoses.length > 0) {
+        const primary = diagnoses.find(d => parseInt(d.diagtype) === 1) || diagnoses[0];
+        await query(`UPDATE an_stat SET pdx = ? WHERE an = ?`, [primary.icd10, an]);
+      }
+    });
 
     res.json({ success: true, message: 'บันทึกการวินิจฉัย IPD สำเร็จ' });
   } catch (e) {
+    console.log('[ipd save diagnosis] ROLLBACK:', e.message);
     res.json({ success: false, message: e.message });
   }
 });
@@ -1997,6 +2037,57 @@ app.get('/api/icd9cm/:vn', requireAuth, async (req, res) => {
       console.log('[icd9cm GET] error:', e1.message);
     }
     res.json({ success: true, data: rows });
+  } catch (error) {
+    res.json({ success: false, message: error.message });
+  }
+});
+
+// ─── ICD9CM (IPD) ──────────────────────────────────────────────────────────────
+// หมายเหตุ: ชื่อคอลัมน์ ipt_oper_type / ext_code ใน iptdiag เป็นการเดาตามรูปแบบของ
+// ovstdiag (ฝั่ง OPD) — รอ query จริงจากผู้ใช้เพื่อแก้ไขให้ตรงกับ schema จริง
+app.get('/api/ipd/icd9cm/:an', requireAuth, async (req, res) => {
+  try {
+    const { an } = req.params;
+    let rows = [];
+    try {
+      rows = await dbQuery(
+        `SELECT id.icd10 AS icd9cm, i.name AS icd9cm_name,
+                ot.name AS oper_type, ot.name AS oper_type_name,
+                id.ext_code, id.doctor AS doctor_raw
+         FROM iptdiag id
+           LEFT OUTER JOIN icd9cm1 i    ON i.code        = id.icd10
+           LEFT OUTER JOIN oper_type ot ON ot.oper_type  = id.ipt_oper_type
+         WHERE id.an = ?
+           AND id.icd10 BETWEEN '0' AND '99999'
+         ORDER BY id.icd10`,
+        [an]
+      );
+    } catch (e1) {
+      console.log('[ipd icd9cm GET] error:', e1.message);
+    }
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    res.json({ success: false, message: error.message });
+  }
+});
+
+app.get('/api/ipd/admit-doctor/:an', requireAuth, async (req, res) => {
+  try {
+    const { an } = req.params;
+    let rows = [];
+    try {
+      rows = await dbQuery(
+        `SELECT ipt.admdoctor AS doctor_raw,
+                COALESCE(d.name, '') AS doctor_name
+         FROM ipt
+           LEFT OUTER JOIN doctor d ON d.code = ipt.admdoctor
+         WHERE ipt.an = ? LIMIT 1`,
+        [an]
+      );
+    } catch (e1) {
+      console.log('[ipd admit-doctor GET] error:', e1.message);
+    }
+    res.json({ success: true, data: rows[0] || null });
   } catch (error) {
     res.json({ success: false, message: error.message });
   }

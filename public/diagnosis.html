@@ -174,6 +174,77 @@
     </div>
     </div>
 
+    <!-- ICD9CM Card -->
+    <div class="card">
+      <div class="card-header-dx p-3 d-flex align-items-center justify-content-between">
+        <h6 class="text-white mb-0"><i class="fas fa-procedures me-2"></i>รายการหัตถการ ICD9CM</h6>
+        <span id="icd9Count" class="badge bg-light text-dark">0 รายการ</span>
+      </div>
+      <div class="card-body p-3">
+
+        <!-- Add ICD9CM Form -->
+        <div class="row g-2 mb-2 align-items-end">
+          <div class="col-md-2">
+            <label class="form-label fw-semibold mb-1">รหัส ICD9CM</label>
+            <div style="position:relative;">
+              <input type="text" class="form-control" id="icd9Search"
+                placeholder="พิมพ์รหัส..." autocomplete="off"
+                lang="en" inputmode="text"
+                onfocus="this.lang='en'; this.setAttribute('inputmode','text');">
+              <div id="icd9Dropdown"
+                style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;
+                       border:1px solid #90c4e8;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);
+                       z-index:1000;max-height:260px;overflow-y:auto;"></div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold mb-1">ชื่อหัตถการ</label>
+            <input type="text" class="form-control" id="icd9NameField" readonly
+              placeholder="จะแสดงเมื่อพบรหัส" style="background:#f8fafc;">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label fw-semibold mb-1">oper type</label>
+            <select class="form-select" id="icd9OperType">
+              <option value="">-- เลือก oper type --</option>
+            </select>
+          </div>
+          <div class="col-md-1">
+            <label class="form-label fw-semibold mb-1">ext code</label>
+            <input type="text" class="form-control" id="icd9ExtCode" placeholder="ext code">
+          </div>
+          <div class="col-md-1">
+            <label class="form-label fw-semibold mb-1">รหัสผู้วินิจฉัย</label>
+            <input type="text" class="form-control" id="icd9DoctorRaw" readonly style="background:#f8fafc;">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label fw-semibold mb-1">ผู้วินิจฉัย</label>
+            <div style="position:relative;">
+              <input type="text" class="form-control" id="icd9DoctorName"
+                placeholder="ค้นหาแพทย์..." autocomplete="off" oninput="onIcd9DoctorSearch()">
+              <div id="icd9DoctorDropdown"
+                style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;
+                       border:1px solid #90c4e8;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);
+                       z-index:1001;max-height:220px;overflow-y:auto;"></div>
+            </div>
+          </div>
+          <div class="col-md-1">
+            <button class="btn btn-success w-100" onclick="addIcd9()" id="btnAddIcd9">
+              <i class="fas fa-plus"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- ICD9CM List -->
+        <div id="icd9List">
+          <div class="empty-dx">
+            <i class="fas fa-procedures fa-2x mb-2 d-block text-muted"></i>
+            ยังไม่มีรายการหัตถการ
+          </div>
+        </div>
+
+      </div>
+    </div>
+
     <!-- Doctor Card -->
     <div class="card">
       <div class="card-header-doctor p-3">

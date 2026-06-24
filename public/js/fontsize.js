@@ -114,7 +114,7 @@
 
   function init() {
     createWidget();
-    applySize(getSaved());
+    applySize(DEFAULT); // always start at 100% regardless of saved preference
   }
 
   if (document.readyState === 'loading') {

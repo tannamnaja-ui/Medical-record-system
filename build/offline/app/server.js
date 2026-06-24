@@ -694,6 +694,45 @@ app.post('/api/chart/save-rent', requireAuth, async (req, res) => {
   } catch (e) { res.json({ success: false, message: e.message }); }
 });
 
+// แก้ไขรายการยืมแฟ้มที่มีอยู่แล้ว → UPDATE ipdrent (ไม่สร้างรายการใหม่)
+app.post('/api/chart/update-rent', requireAuth, async (req, res) => {
+  try {
+    const { rent_id, rent_date, rent_time, room, borrower_code,
+            reason_name, phone, comment, lender_code, due_date } = req.body;
+    if (!rent_id) return res.json({ success: false, message: 'ไม่พบรายการยืมแฟ้มที่จะแก้ไข' });
+
+    let rent_depcode = '';
+    if (room) {
+      try {
+        const r = await dbQuery(`SELECT depcode FROM kskdepartment WHERE department = ? LIMIT 1`, [room]);
+        if (r.length) rent_depcode = r[0].depcode || '';
+      } catch (_) {}
+    }
+
+    let rent_reason_id = null;
+    if (reason_name) {
+      try {
+        const r = await dbQuery(`SELECT id FROM rent_reason WHERE name = ? LIMIT 1`, [reason_name]);
+        if (r.length) rent_reason_id = r[0].id;
+      } catch (_) {}
+    }
+
+    const rent_user = borrower_code || '';
+    const staff      = lender_code || req.user.officer_login_name || '';
+
+    await dbQuery(`
+      UPDATE ipdrent
+         SET rent_date = ?, rent_time = ?, rent_depcode = ?,
+             rent_user = ?, rent_reason_id = ?, phone = ?,
+             comment = ?, staff = ?, due_date = ?
+       WHERE rent_id = ?`,
+      [rent_date, rent_time, rent_depcode, rent_user, rent_reason_id,
+       phone || '', comment || '', staff, due_date, rent_id]);
+
+    res.json({ success: true, message: 'บันทึกการแก้ไขข้อมูลยืมแฟ้มสำเร็จ' });
+  } catch (e) { res.json({ success: false, message: e.message }); }
+});
+
 // chart ที่ถูกยืม: เฉพาะ AN ใน ipdrent กรองตาม rent_date
 app.get('/api/chart/borrowed-list', requireAuth, async (req, res) => {
   try {
@@ -775,7 +814,9 @@ app.get('/api/chart/rent-list', requireAuth, async (req, res) => {
              COALESCE(rr.name,'') AS rent_reason_name,
              COALESCE(ptt.name,'') AS pttype_name,
              COALESCE(dct1.name,'') AS incharge_doctor_name,
-             COALESCE(o.officer_login_name, r.rent_user,'') AS rent_user_name,
+             COALESCE(oborrow.officer_name, r.rent_user,'') AS rent_user_name,
+             COALESCE(kd.department,'') AS rent_room_name,
+             COALESCE(ostaff.officer_name, r.staff,'') AS lender_name,
              (CURRENT_DATE - CAST(r.rent_date AS DATE)) AS days_rented,
              CASE WHEN r.due_date < CURRENT_DATE AND r.checkin='N' THEN 'Y' ELSE 'N' END AS is_overdue,
              icl.chart_date AS chart_receive_date,
@@ -789,13 +830,92 @@ app.get('/api/chart/rent-list', requireAuth, async (req, res) => {
         LEFT OUTER JOIN pttype ptt    ON ptt.pttype        = ip1.pttype
         LEFT OUTER JOIN ipt_doctor_list il1 ON il1.an     = ipt.an AND il1.ipt_doctor_type_id = 1 AND il1.active_doctor = 'Y'
         LEFT OUTER JOIN doctor dct1   ON dct1.code         = il1.doctor
-        LEFT OUTER JOIN officer o     ON o.officer_login_name = r.rent_user
+        LEFT OUTER JOIN officer oborrow  ON oborrow.officer_login_name = r.rent_user
+        LEFT OUTER JOIN kskdepartment kd ON kd.depcode              = r.rent_depcode
+        LEFT OUTER JOIN officer ostaff   ON ostaff.officer_login_name = r.staff
         LEFT OUTER JOIN ipt_chart_location icl ON icl.an  = r.an
         LEFT OUTER JOIN officer o2    ON o2.officer_login_name = icl.staff
       ${whereClause}
         AND r.checkin = 'N'
         ${wardFilter}
       ORDER BY r.rent_date DESC, r.rent_time DESC LIMIT 2000`, params);
+    res.json({ success: true, data: rows });
+  } catch (e) { res.json({ success: false, message: e.message }); }
+});
+
+// ดึงรายละเอียดการยืมแฟ้มรายการเดียวตาม ipdrent.rent_id (primary key)
+app.get('/api/chart/rent/:rentId', requireAuth, async (req, res) => {
+  try {
+    const { rentId } = req.params;
+    const rows = await dbQuery(`
+      SELECT r.rent_id, r.an, r.hn, r.rent_date, r.rent_time,
+             r.rent_depcode, r.rent_user, r.phone, r.comment, r.staff,
+             r.due_date, r.checkin,
+             CAST(CONCAT(p.pname,p.fname,' ',p.lname) AS VARCHAR(250)) AS patient_name,
+             CAST(ipt.regdate AS DATE) AS regdate,
+             CAST(ipt.dchdate AS DATE) AS dchdate,
+             COALESCE(ipt.ward,'') AS ward,
+             COALESCE(w.name,'') AS ward_name,
+             COALESCE(rr.name,'') AS rent_reason_name,
+             COALESCE(oborrow.officer_name, r.rent_user,'') AS rent_user_name,
+             COALESCE(kd.department,'') AS rent_room_name,
+             COALESCE(ostaff.officer_name, r.staff,'') AS lender_name
+      FROM ipdrent r
+        LEFT OUTER JOIN ipt              ON ipt.an = r.an
+        LEFT OUTER JOIN patient p        ON p.hn   = r.hn
+        LEFT OUTER JOIN ward w           ON w.ward = ipt.ward
+        LEFT OUTER JOIN rent_reason rr   ON rr.id  = r.rent_reason_id
+        LEFT OUTER JOIN officer oborrow  ON oborrow.officer_login_name = r.rent_user
+        LEFT OUTER JOIN kskdepartment kd ON kd.depcode = r.rent_depcode
+        LEFT OUTER JOIN officer ostaff   ON ostaff.officer_login_name = r.staff
+      WHERE r.rent_id = ?
+      LIMIT 1`, [rentId]);
+    if (!rows.length) return res.json({ success: false, message: 'ไม่พบรายการยืมแฟ้ม' });
+    res.json({ success: true, data: rows[0] });
+  } catch (e) { res.json({ success: false, message: e.message }); }
+});
+
+// ค้นหารายการยืมแฟ้มด้วย AN/HN (ไม่กรอง checkin เพื่อให้เจอทั้งที่ยังไม่คืนและคืนแล้ว)
+app.get('/api/chart/rent-search', requireAuth, async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q) return res.json({ success: true, data: [] });
+    const qLike = `%${q}%`;
+    const rows = await dbQuery(`
+      SELECT r.rent_id, r.an, r.hn, r.rent_date, r.rent_time,
+             r.rent_depcode, r.rent_user, r.phone, r.comment, r.staff,
+             r.due_date, r.checkin,
+             CAST(CONCAT(p.pname,p.fname,' ',p.lname) AS VARCHAR(250)) AS patient_name,
+             CAST(ipt.regdate AS DATE) AS regdate,
+             CAST(ipt.dchdate AS DATE) AS dchdate,
+             COALESCE(ipt.ward,'') AS ward,
+             COALESCE(w.name,'') AS ward_name,
+             COALESCE(rr.name,'') AS rent_reason_name,
+             COALESCE(ptt.name,'') AS pttype_name,
+             COALESCE(dct1.name,'') AS incharge_doctor_name,
+             COALESCE(oborrow.officer_name, r.rent_user,'') AS rent_user_name,
+             COALESCE(kd.department,'') AS rent_room_name,
+             COALESCE(ostaff.officer_name, r.staff,'') AS lender_name,
+             (CURRENT_DATE - CAST(r.rent_date AS DATE)) AS days_rented,
+             CASE WHEN r.due_date < CURRENT_DATE AND r.checkin='N' THEN 'Y' ELSE 'N' END AS is_overdue,
+             icl.chart_date AS chart_receive_date,
+             COALESCE(o2.officer_name, icl.staff,'') AS chart_receiver_name
+      FROM ipdrent r
+        LEFT OUTER JOIN ipt           ON ipt.an          = r.an
+        LEFT OUTER JOIN patient p     ON p.hn             = r.hn
+        LEFT OUTER JOIN ward w        ON w.ward           = ipt.ward
+        LEFT OUTER JOIN rent_reason rr ON rr.id           = r.rent_reason_id
+        LEFT OUTER JOIN ipt_pttype ip1 ON ip1.an          = ipt.an AND ip1.pttype_number = 1
+        LEFT OUTER JOIN pttype ptt    ON ptt.pttype        = ip1.pttype
+        LEFT OUTER JOIN ipt_doctor_list il1 ON il1.an     = ipt.an AND il1.ipt_doctor_type_id = 1 AND il1.active_doctor = 'Y'
+        LEFT OUTER JOIN doctor dct1   ON dct1.code         = il1.doctor
+        LEFT OUTER JOIN officer oborrow  ON oborrow.officer_login_name = r.rent_user
+        LEFT OUTER JOIN kskdepartment kd ON kd.depcode              = r.rent_depcode
+        LEFT OUTER JOIN officer ostaff   ON ostaff.officer_login_name = r.staff
+        LEFT OUTER JOIN ipt_chart_location icl ON icl.an  = r.an
+        LEFT OUTER JOIN officer o2    ON o2.officer_login_name = icl.staff
+      WHERE (r.an LIKE ? OR r.hn LIKE ?)
+      ORDER BY r.rent_date DESC, r.rent_time DESC LIMIT 50`, [qLike, qLike]);
     res.json({ success: true, data: rows });
   } catch (e) { res.json({ success: false, message: e.message }); }
 });

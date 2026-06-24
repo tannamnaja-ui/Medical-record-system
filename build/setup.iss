@@ -1,6 +1,6 @@
-; Medical Record System - Inno Setup Script v1.2.3
+; Medical Record System - Inno Setup Script v1.2.5
 #define AppName "Medical Record System"
-#define AppVersion "1.2.3"
+#define AppVersion "1.2.5"
 #define ServiceName "MedicalRecordSystem"
 
 [Setup]

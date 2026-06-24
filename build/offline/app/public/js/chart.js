@@ -4,6 +4,7 @@ let borrowModal = null;
 let logModal    = null;
 let rentModal   = null;
 let currentRow  = null;
+let currentRentId = null;
 let rentDoctorTimers = {};
 
 (async () => {
@@ -20,8 +21,22 @@ let rentDoctorTimers = {};
   await Promise.all([loadWards(), loadHospitalName(), loadDepartments(), loadSummaryStatus(), loadUserRoom(),
                      loadRentReasons(), loadSpclty(), loadRentRooms()]);
   initSearchInput();
+  initChartBodyClick();
   document.getElementById('rowCount').textContent = '';
 })();
+
+// คลิกแถวในตาราง (ใช้ event delegation เพราะแถวถูก re-render ตลอด ไม่ต้อง bind ใหม่ทุกครั้ง)
+function initChartBodyClick() {
+  const tbody = document.getElementById('chartBody');
+  if (!tbody) return;
+  tbody.addEventListener('click', e => {
+    const tr = e.target.closest('tr[data-rent-id]');
+    if (!tr) return;
+    const rentId = tr.getAttribute('data-rent-id');
+    console.log('[chart] clicked rent row, rent_id =', rentId);
+    if (rentId) openRentEditModal(rentId);
+  });
+}
 
 function escHtml(s) {
   if (!s && s !== 0) return '';
@@ -96,6 +111,10 @@ function setMenu(mode) {
   const chkOverdue = document.getElementById('chkOverdue');
   if (!isBorrowed && chkOverdue) chkOverdue.checked = false;
 
+  // เมนู "chart ที่ถูกยืม" แสดงเฉพาะที่ยังไม่ได้คืนเสมอ (บังคับจาก server) ไม่ต้องมี checkbox ให้เลือก
+  const notReceivedRow = document.getElementById('chkNotReceivedRow');
+  if (notReceivedRow) notReceivedRow.classList.toggle('d-none', mode === 'borrowed');
+
   // แสดง/ซ่อน overdue days input (เมนู overdue เดิม)
   document.getElementById('overdueDaysRow').classList.toggle('d-none', mode !== 'overdue');
 
@@ -139,9 +158,9 @@ async function loadData() {
       if (notSummarized) params.append('notSummarized', 'true');
       url = `/api/chart/receive?${params}`;
     } else if (currentMode === 'borrowed') {
-      const notReturn = document.getElementById('chkNotReceived')?.checked || false;
-      params = new URLSearchParams({ dateFrom, dateTo, ward, notReturn });
-      url = `/api/chart/borrowed-list?${params}`;
+      // chart ที่ถูกยืม: แสดงเฉพาะที่ยังไม่ได้คืน (server บังคับ checkin='N' เสมอ)
+      params = new URLSearchParams({ dateFrom, dateTo, ward });
+      url = `/api/chart/rent-list?${params}`;
     } else if (currentMode === 'due_return') {
       // chart ที่ต้องคืน = date range เหมือน borrowed + due_date <= CURRENT_DATE
       params = new URLSearchParams({ dateFrom, dateTo, ward, dueOnly: true });
@@ -222,7 +241,11 @@ function initSearchInput() {
 async function fetchByAN(q) {
   showLoading(true);
   try {
-    const res  = await apiFetch(`/api/chart/find-an?q=${encodeURIComponent(q)}`);
+    // เมนู "chart ที่ถูกยืม" ค้นจากรายการยืม (ipdrent) เพื่อให้เจอทั้งที่ยังไม่คืนและคืนแล้ว
+    const url  = currentMode === 'borrowed'
+      ? `/api/chart/rent-search?q=${encodeURIComponent(q)}`
+      : `/api/chart/find-an?q=${encodeURIComponent(q)}`;
+    const res  = await apiFetch(url);
     const data = await res.json();
     if (data.success) { allData = data.data || []; renderTable(allData); }
     else showError(data.message);
@@ -236,7 +259,10 @@ async function fetchByAN(q) {
 async function fetchByHN(q) {
   showLoading(true);
   try {
-    const res  = await apiFetch(`/api/chart/find-hn?q=${encodeURIComponent(q)}`);
+    const url  = currentMode === 'borrowed'
+      ? `/api/chart/rent-search?q=${encodeURIComponent(q)}`
+      : `/api/chart/find-hn?q=${encodeURIComponent(q)}`;
+    const res  = await apiFetch(url);
     const data = await res.json();
     if (data.success) { allData = data.data || []; renderTable(allData); }
     else showError(data.message);
@@ -291,7 +317,7 @@ function renderTable(rows) {
   const tbody = document.getElementById('chartBody');
   document.getElementById('rowCount').textContent = `พบ ${rows.length} ราย`;
 
-  if (currentMode === 'due_return') { renderBorrowedTable(rows); return; }
+  if (currentMode === 'due_return' || currentMode === 'borrowed') { renderBorrowedTable(rows); return; }
 
   if (!rows.length) {
     tbody.innerHTML = `<tr><td colspan="14" class="text-center text-muted py-5">
@@ -315,7 +341,7 @@ function renderTable(rows) {
     const trStyle   = received
       ? `cursor:pointer;background-color:#d1fae5!important;--bs-table-accent-bg:#d1fae5;`
       : `cursor:pointer;`;
-    const clickable = (currentMode === 'not_received' || currentMode === 'borrowed')
+    const clickable = (currentMode === 'not_received')
       ? `onclick="openBorrowModal(${i})" title="คลิกเพื่อดูข้อมูล chart"`
       : '';
     return `<tr class="${trClass}" ${clickable} style="${trStyle}">
@@ -340,18 +366,20 @@ function renderTable(rows) {
 function renderBorrowedTable(rows) {
   const tbody  = document.getElementById('chartBody');
   const thead  = document.querySelector('#chartTable thead tr');
+  console.log('[chart] renderBorrowedTable: currentMode =', currentMode, ', rows =', rows.length,
+    ', sample rent_id =', rows[0] && rows[0].rent_id);
 
   // อัปเดต header
   if (thead) thead.innerHTML = `
-    <th>#</th><th>AN</th><th>HN</th><th>ชื่อ-สกุล</th><th>สถานะ chart</th>
+    <th>#</th><th>AN</th><th>HN</th><th>ชื่อ-สกุล</th><th>สถานะ chart</th><th>ชื่อผู้ยืม</th>
     <th>วันรับ</th><th>วันจำหน่าย</th><th>ตึก/วอร์ด</th>
-    <th>ผู้ยืม chart</th><th>วันที่ยืม</th><th>chart</th>
+    <th>วันที่ยืม</th><th>chart</th>
     <th>จำนวนวันที่ยืม</th><th>วันที่ต้องคืน</th>
     <th>สิทธิ์</th><th>แพทย์เจ้าของไข้</th>
     <th>รับแฟ้มวันที่</th><th>ผู้รับแฟ้ม</th>`;
 
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="16" class="text-center text-muted py-5">
+    tbody.innerHTML = `<tr><td colspan="17" class="text-center text-muted py-5">
       <i class="fas fa-inbox fa-2x mb-2 d-block"></i>ไม่พบข้อมูล</td></tr>`;
     return;
   }
@@ -369,16 +397,19 @@ function renderBorrowedTable(rows) {
     const chartStatus = r.checkin === 'N'
       ? `<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;">ยังไม่คืน</span>`
       : `<span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:4px;">คืนแล้ว</span>`;
-    return `<tr>
+    const rowClickable = (currentMode === 'borrowed' && r.rent_id)
+      ? `data-rent-id="${escHtml(r.rent_id)}" style="cursor:pointer;" title="คลิกเพื่อดู/แก้ไขข้อมูลการยืม"`
+      : '';
+    return `<tr ${rowClickable}>
       <td>${i+1}</td>
       <td style="font-family:monospace;">${escHtml(r.an)}</td>
       <td style="font-family:monospace;">${escHtml(r.hn)}</td>
       <td class="fw-semibold">${escHtml(r.patient_name||'–')}</td>
       <td>${escHtml(r.chart_status_name||'–')}</td>
+      <td>${escHtml(r.rent_user_name||r.rent_user||'–')}</td>
       <td>${regdate}</td>
       <td>${dchdate}</td>
       <td>${escHtml(r.ward_name||'–')}</td>
-      <td>${escHtml(r.rent_user_name||r.rent_user||'–')}</td>
       <td>${rentDate}</td>
       <td>${chartStatus}</td>
       <td style="text-align:center;">${r.days_rented ?? '–'}</td>
@@ -706,6 +737,7 @@ async function returnChart() {
 
 async function openRentModal() {
   if (!currentRow) return;
+  currentRentId = null;
   const p    = currentRow;
   const today = new Date().toLocaleDateString('en-CA');
   const now   = new Date().toTimeString().substring(0,5);
@@ -735,8 +767,77 @@ async function openRentModal() {
   document.getElementById('rLenderDrop').style.display = 'none';
   document.getElementById('rAlert').className = 'alert d-none';
 
+  // กรณีก่อนหน้าเปิดดูรายการที่คืนแล้ว (read-only) ให้คืนสถานะแก้ไขได้ตามปกติ
+  ['rDateRent','rTimeRent','rDueDate','rPhone','rRoom','rNote','rReason','rBorrower','rLender']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = false; });
+  const btnSaveReset = document.getElementById('btnRentSave');
+  if (btnSaveReset) btnSaveReset.style.display = '';
+
   if (!rentModal) rentModal = new bootstrap.Modal(document.getElementById('rentModal'));
   rentModal.show();
+}
+
+// เปิดหน้าจอ "ยืมแฟ้มผู้ป่วยใน" โดยดึงข้อมูลการยืมจาก ipdrent ตาม rent_id ที่เลือก (primary key)
+async function openRentEditModal(rentId) {
+  console.log('[chart] openRentEditModal called with rentId =', rentId);
+  if (!rentId) return;
+  showLoading(true);
+  try {
+    const res  = await apiFetch(`/api/chart/rent/${rentId}`);
+    const data = await res.json();
+    console.log('[chart] /api/chart/rent response:', data);
+    if (!data.success || !data.data) {
+      alert(data.message || 'ไม่พบข้อมูลการยืมแฟ้ม');
+      return;
+    }
+    const r = data.data;
+    currentRow    = r;
+    currentRentId = r.rent_id;
+
+    document.getElementById('rAn').textContent        = r.an;
+    document.getElementById('rName').textContent      = r.patient_name || '–';
+    document.getElementById('rAge').textContent       = '–';
+    document.getElementById('rWard').textContent      = r.ward_name || '–';
+    document.getElementById('rChartDate').textContent = fmtDate(r.regdate);
+
+    document.getElementById('rDateRent').value = r.rent_date ? String(r.rent_date).substring(0,10) : '';
+    document.getElementById('rTimeRent').value = r.rent_time ? String(r.rent_time).substring(0,5)  : '';
+    document.getElementById('rDueDate').value  = r.due_date  ? String(r.due_date).substring(0,10)  : '';
+    document.getElementById('rPhone').value    = r.phone   || '';
+    document.getElementById('rRoom').value     = r.rent_room_name || '';
+    document.getElementById('rNote').value     = r.comment || '';
+    document.getElementById('rReason').value   = r.rent_reason_name || '';
+
+    document.getElementById('rBorrower').value     = r.rent_user_name || r.rent_user || '';
+    document.getElementById('rBorrowerCode').value = r.rent_user || '';
+    document.getElementById('rBorrowerDrop').style.display = 'none';
+
+    document.getElementById('rLender').value     = r.lender_name || r.staff || '';
+    document.getElementById('rLenderCode').value = r.staff || '';
+    document.getElementById('rLenderDrop').style.display = 'none';
+
+    // คืนแฟ้มแล้ว (checkin='Y') → แสดงอย่างเดียว แก้ไขไม่ได้
+    const readOnly = r.checkin !== 'N';
+    ['rDateRent','rTimeRent','rDueDate','rPhone','rRoom','rNote','rReason','rBorrower','rLender']
+      .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = readOnly; });
+    const btnSave = document.getElementById('btnRentSave');
+    if (btnSave) btnSave.style.display = readOnly ? 'none' : '';
+
+    const alertEl = document.getElementById('rAlert');
+    if (readOnly) {
+      alertEl.className   = 'alert alert-secondary mt-3';
+      alertEl.textContent = 'รายการนี้คืนแฟ้มแล้ว — แสดงข้อมูลอย่างเดียว ไม่สามารถแก้ไขได้';
+    } else {
+      alertEl.className = 'alert d-none';
+    }
+
+    if (!rentModal) rentModal = new bootstrap.Modal(document.getElementById('rentModal'));
+    rentModal.show();
+  } catch (e) {
+    if (e.message !== 'กรุณาเข้าสู่ระบบ') alert(e.message);
+  } finally {
+    showLoading(false);
+  }
 }
 
 async function saveRent() {
@@ -747,6 +848,7 @@ async function saveRent() {
 
   try {
     const p = currentRow;
+    const isEdit = !!currentRentId;
     const body = {
       an:            p.an,
       hn:            p.hn,
@@ -760,8 +862,9 @@ async function saveRent() {
       lender_code:   document.getElementById('rLenderCode').value || document.getElementById('rLender').value,
       due_date:      document.getElementById('rDueDate').value,
     };
+    if (isEdit) body.rent_id = currentRentId;
 
-    const res  = await apiFetch('/api/chart/save-rent', { method: 'POST', body });
+    const res  = await apiFetch(isEdit ? '/api/chart/update-rent' : '/api/chart/save-rent', { method: 'POST', body });
     const data = await res.json();
 
     if (data.success) {
